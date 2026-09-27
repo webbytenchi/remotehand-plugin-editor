@@ -124,6 +124,8 @@ button:disabled{opacity:.45;cursor:default}
 
   const tabsHost = document.getElementById("tabs");
   const editor = document.getElementById("editor");
+  const syntaxLayer = document.getElementById("syntaxLayer");
+  const syntaxCode = document.getElementById("syntaxCode");
   const gutter = document.getElementById("gutter");
   const editorWrap = document.getElementById("editorWrap");
   const empty = document.getElementById("empty");
@@ -151,15 +153,113 @@ button:disabled{opacity:.45;cursor:default}
 
   const basename = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || String(path || "");
 
-  function languageFor(name) {
+  function languageInfo(name) {
     const ext = (String(name).match(/\.([^.]+)$/) || [,""])[1].toLowerCase();
     return ({
-      txt:"Plain Text", log:"Log", md:"Markdown", json:"JSON", yaml:"YAML", yml:"YAML",
-      toml:"TOML", ini:"INI", xml:"XML", html:"HTML", htm:"HTML", css:"CSS",
-      js:"JavaScript", jsx:"JavaScript", ts:"TypeScript", tsx:"TypeScript",
-      py:"Python", rs:"Rust", go:"Go", c:"C", h:"C/C++", cpp:"C++", hpp:"C++",
-      cs:"C#", java:"Java", sh:"Shell", ps1:"PowerShell"
-    })[ext] || "Plain Text";
+      txt:["Plain Text","text"], log:["Log","text"], md:["Markdown","markdown"],
+      json:["JSON","json"], yaml:["YAML","config"], yml:["YAML","config"],
+      toml:["TOML","config"], ini:["INI","config"], xml:["XML","markup"],
+      html:["HTML","markup"], htm:["HTML","markup"], css:["CSS","css"],
+      js:["JavaScript","javascript"], jsx:["JavaScript","javascript"],
+      ts:["TypeScript","typescript"], tsx:["TypeScript","typescript"],
+      py:["Python","python"], rs:["Rust","rust"], go:["Go","go"],
+      c:["C","c"], h:["C/C++","cpp"], cpp:["C++","cpp"], hpp:["C++","cpp"],
+      cs:["C#","csharp"], java:["Java","java"], sh:["Shell","shell"],
+      ps1:["PowerShell","powershell"]
+    })[ext] || ["Plain Text","text"];
+  }
+
+  function languageFor(name) { return languageInfo(name)[0]; }
+
+  function escapeHtml(value) {
+    return String(value).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  function tokenHtml(text, patterns) {
+    let cursor = 0, output = "";
+    while (cursor < text.length) {
+      let best = null;
+      for (const pattern of patterns) {
+        pattern.regex.lastIndex = cursor;
+        const match = pattern.regex.exec(text);
+        if (!match) continue;
+        if (!best || match.index < best.match.index ||
+            (match.index === best.match.index && match[0].length > best.match[0].length)) {
+          best = { pattern, match };
+        }
+      }
+      if (!best) { output += escapeHtml(text.slice(cursor)); break; }
+      if (best.match.index > cursor) output += escapeHtml(text.slice(cursor,best.match.index));
+      output += '<span class="' + best.pattern.className + '">' + escapeHtml(best.match[0]) + '</span>';
+      cursor = best.match.index + Math.max(1,best.match[0].length);
+    }
+    return output;
+  }
+
+  function syntaxPatterns(kind) {
+    const commonStrings = { className:"syn-string", regex: /"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'/g };
+    const number = { className:"syn-number", regex: /\b(?:0x[\da-f]+|\d+(?:\.\d+)?)\b/gi };
+    const keywordSets = {
+      javascript:"break|case|catch|class|const|continue|default|delete|do|else|export|extends|finally|for|from|function|if|import|in|instanceof|let|new|of|return|static|super|switch|throw|try|typeof|var|while|yield|async|await",
+      typescript:"abstract|as|any|boolean|break|case|catch|class|const|continue|declare|default|else|enum|export|extends|for|from|function|if|implements|import|in|interface|keyof|let|namespace|never|new|number|object|of|override|private|protected|public|readonly|return|static|string|switch|type|typeof|unknown|void|while|async|await",
+      python:"and|as|assert|async|await|break|class|continue|def|del|elif|else|except|finally|for|from|global|if|import|in|is|lambda|nonlocal|not|or|pass|raise|return|try|while|with|yield",
+      rust:"as|async|await|break|const|continue|crate|dyn|else|enum|extern|fn|for|if|impl|in|let|loop|match|mod|move|mut|pub|ref|return|self|Self|static|struct|super|trait|type|unsafe|use|where|while",
+      go:"break|case|chan|const|continue|default|defer|else|fallthrough|for|func|go|goto|if|import|interface|map|package|range|return|select|struct|switch|type|var",
+      c:"auto|break|case|char|const|continue|default|do|double|else|enum|extern|float|for|goto|if|inline|int|long|return|short|signed|sizeof|static|struct|switch|typedef|union|unsigned|void|volatile|while",
+      cpp:"auto|bool|break|case|catch|char|class|const|constexpr|continue|default|delete|do|double|else|enum|explicit|extern|false|float|for|friend|if|inline|int|long|namespace|new|nullptr|operator|private|protected|public|return|short|signed|sizeof|static|struct|switch|template|this|throw|true|try|typedef|typename|union|unsigned|using|virtual|void|volatile|while",
+      csharp:"abstract|as|async|await|base|bool|break|byte|case|catch|char|class|const|continue|decimal|default|delegate|do|double|else|enum|event|false|finally|float|for|foreach|if|in|int|interface|internal|is|long|namespace|new|null|object|out|override|private|protected|public|readonly|ref|return|short|static|string|struct|switch|this|throw|true|try|typeof|uint|ulong|using|virtual|void|while",
+      java:"abstract|assert|boolean|break|byte|case|catch|char|class|continue|default|do|double|else|enum|extends|final|finally|float|for|if|implements|import|instanceof|int|interface|long|native|new|package|private|protected|public|return|short|static|super|switch|synchronized|this|throw|throws|try|void|volatile|while",
+      powershell:"begin|break|catch|class|continue|do|else|elseif|end|enum|exit|filter|finally|for|foreach|function|if|in|param|process|return|switch|throw|trap|try|until|using|while",
+      shell:"case|do|done|elif|else|esac|export|fi|for|function|if|in|local|readonly|return|select|then|until|while"
+    };
+    if (kind === "text") return [];
+    if (kind === "json") return [
+      { className:"syn-property", regex: /"(?:\\.|[^"\\])*"(?=\s*:)/g },
+      commonStrings,
+      { className:"syn-literal", regex: /\b(?:true|false|null)\b/g }, number
+    ];
+    if (kind === "python") return [
+      { className:"syn-comment", regex: /#[^\n]*/g }, commonStrings, number,
+      { className:"syn-keyword", regex: new RegExp("\\b(?:" + keywordSets.python + ")\\b","g") },
+      { className:"syn-literal", regex: /\b(?:True|False|None)\b/g }
+    ];
+    if (kind === "powershell" || kind === "shell") return [
+      { className:"syn-comment", regex: /#[^\n]*/g }, commonStrings, number,
+      { className:"syn-keyword", regex: new RegExp("\\b(?:" + keywordSets[kind] + ")\\b","gi") }
+    ];
+    if (kind === "markdown") return [
+      { className:"syn-heading", regex: /^#{1,6}[^\n]*/gm },
+      { className:"syn-comment", regex: /<!--[\s\S]*?-->/g }
+    ];
+    if (kind === "markup") return [
+      { className:"syn-comment", regex: /<!--[\s\S]*?-->/g },
+      { className:"syn-tag", regex: /<\/?[A-Za-z][^>]*>/g }
+    ];
+    if (kind === "css") return [
+      { className:"syn-comment", regex: /\/\*[\s\S]*?\*\//g }, commonStrings, number,
+      { className:"syn-property", regex: /[-A-Za-z]+(?=\s*:)/g }
+    ];
+    if (kind === "config") return [
+      { className:"syn-comment", regex: /#[^\n]*|;[^\n]*/g },
+      { className:"syn-property", regex: /^[ \t]*[A-Za-z0-9_.-]+(?=\s*[:=])/gm },
+      commonStrings, number, { className:"syn-literal", regex: /\b(?:true|false|null)\b/gi }
+    ];
+    const keywords = keywordSets[kind] || keywordSets.javascript;
+    return [
+      { className:"syn-comment", regex: /\/\*[\s\S]*?\*\/|\/\/[^\n]*/g },
+      commonStrings, number,
+      { className:"syn-keyword", regex: new RegExp("\\b(?:" + keywords + ")\\b","g") },
+      { className:"syn-literal", regex: /\b(?:true|false|null|undefined)\b/g }
+    ];
+  }
+
+  function updateSyntaxHighlight() {
+    const tab = activeTab();
+    if (!tab) { syntaxCode.textContent = ""; return; }
+    const patterns = syntaxPatterns(languageInfo(tab.name)[1]);
+    syntaxCode.innerHTML = patterns.length ? tokenHtml(tab.content,patterns) : escapeHtml(tab.content);
+    syntaxLayer.scrollTop = editor.scrollTop;
+    syntaxLayer.scrollLeft = editor.scrollLeft;
   }
 
   function detectEol(content) {
@@ -458,6 +558,7 @@ button:disabled{opacity:.45;cursor:default}
     }
 
     if (editor.value !== tab.content) editor.value = tab.content;
+    updateSyntaxHighlight();
     const cursor = Math.min(tab.cursor || 0, tab.content.length);
     editor.setSelectionRange(cursor, cursor);
 
@@ -695,6 +796,7 @@ button:disabled{opacity:.45;cursor:default}
     tab.content = editor.value;
     tab.dirty = true;
     tab.eol = detectEol(tab.content);
+    updateSyntaxHighlight();
     updateGutter();
     updatePosition();
     renderTabs();
@@ -706,6 +808,8 @@ button:disabled{opacity:.45;cursor:default}
 
   editor.addEventListener("scroll", () => {
     gutter.scrollTop = editor.scrollTop;
+    syntaxLayer.scrollTop = editor.scrollTop;
+    syntaxLayer.scrollLeft = editor.scrollLeft;
   });
   editor.addEventListener("click", updatePosition);
   editor.addEventListener("keyup", updatePosition);
