@@ -127,6 +127,7 @@ button:disabled{opacity:.45;cursor:default}
   let persistTimer = null;
   let persistInFlight = Promise.resolve();
   let modalResolve = null;
+  let nativeDialogPending = false;
 
   const basename = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || String(path || "");
 
@@ -193,6 +194,7 @@ button:disabled{opacity:.45;cursor:default}
   function persistNow() {
     clearTimeout(persistTimer);
     persistTimer = null;
+    if (nativeDialogPending) return persistInFlight;
     const snapshot = sessionPayload();
     persistInFlight = persistInFlight
       .catch(() => {})
@@ -407,7 +409,8 @@ button:disabled{opacity:.45;cursor:default}
   }
 
   async function saveAsTab(tab = activeTab()) {
-    if (!tab) return false;
+    if (!tab || nativeDialogPending) return false;
+    nativeDialogPending = true;
     try {
       const suggested = tab.path ? tab.name : (tab.name.startsWith("Untitled ") ? "untitled.txt" : tab.name);
       const result = await request("file.save_as", { suggestedName: suggested, content: tab.content });
@@ -418,11 +421,13 @@ button:disabled{opacity:.45;cursor:default}
       tab.recovered = false;
       tab.eol = detectEol(tab.content);
       render();
-      await persistNow();
       return true;
     } catch (error) {
       await messageModal("Could not save file", String(error));
       return false;
+    } finally {
+      nativeDialogPending = false;
+      await persistNow();
     }
   }
 
