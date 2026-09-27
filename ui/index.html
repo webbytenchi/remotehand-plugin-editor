@@ -410,7 +410,7 @@ button:disabled{opacity:.45;cursor:default}
     if (!tab) return false;
     try {
       const suggested = tab.path ? tab.name : (tab.name.startsWith("Untitled ") ? "untitled.txt" : tab.name);
-      const result = await request("file.saveAs", { suggestedName: suggested, content: tab.content });
+      const result = await request("file.save_as", { suggestedName: suggested, content: tab.content });
       if (!result || !result.saved) return false;
       tab.path = result.path;
       tab.name = basename(result.path);
