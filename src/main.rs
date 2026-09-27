@@ -247,6 +247,50 @@ fn write_text_file(path: &Path, content: &str) -> Result<Value, String> {
     }))
 }
 
+
+fn save_text_file_as(suggested_name: &str, content: &str) -> Result<Value, String> {
+    if suggested_name.trim().is_empty() || suggested_name.len() > 255 {
+        return Err("suggested file name is missing or too long".to_string());
+    }
+    if content.len() as u64 > MAX_FILE_BYTES {
+        return Err("content exceeds the Editor 8 MiB limit".to_string());
+    }
+
+    let picked = FileDialog::new()
+        .set_file_name(suggested_name)
+        .add_filter(
+            "Text and code",
+            &[
+                "txt", "md", "json", "yaml", "yml", "toml", "ini", "xml", "html",
+                "htm", "css", "js", "ts", "jsx", "tsx", "py", "rs", "go", "c", "h",
+                "cpp", "hpp", "cs", "java", "sh", "ps1", "log",
+            ],
+        )
+        .add_filter("All files", &["*"])
+        .save_file();
+
+    let Some(path) = picked else {
+        return Ok(json!({ "saved": false }));
+    };
+
+    if let Ok(metadata) = fs::symlink_metadata(&path) {
+        if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+            return Err("Editor only writes regular files".to_string());
+        }
+    }
+
+    fs::write(&path, content.as_bytes())
+        .map_err(|error| format!("cannot save {}: {error}", path_text(&path)))?;
+
+    Ok(json!({
+        "saved": true,
+        "path": path_text(&path),
+        "name": display_name(&path),
+        "encoding": "UTF-8",
+        "eol": detect_eol(content)
+    }))
+}
+
 fn validate_session(value: &Value) -> Result<(), String> {
     let bytes = serde_json::to_vec(value).map_err(|error| error.to_string())?;
     if bytes.len() > MAX_SESSION_BYTES {
@@ -307,26 +351,7 @@ fn dispatch(
             }
             let params: Params = serde_json::from_value(request.params.clone())
                 .map_err(|error| format!("invalid file.save_as request: {error}"))?;
-            if params.content.len() as u64 > MAX_FILE_BYTES {
-                return Err("content exceeds the Editor 8 MiB limit".to_string());
-            }
-            host_call(
-                "file.save",
-                json!({
-                    "suggestedName": params.suggested_name,
-                    "content": params.content,
-                    "filters": [
-                        {
-                            "name": "Text and code",
-                            "extensions": ["txt", "md", "json", "yaml", "toml", "html", "css", "js"]
-                        },
-                        {
-                            "name": "All files",
-                            "extensions": ["txt"]
-                        }
-                    ]
-                }),
-            )
+            save_text_file_as(&params.suggested_name, &params.content)
         }
         method => Err(format!("unsupported plugin method: {method}")),
     }
