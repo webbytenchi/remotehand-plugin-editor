@@ -55,6 +55,7 @@ button:disabled{opacity:.45;cursor:default}
 .syn-property{color:var(--remotehand-accent-text,var(--remotehand-text,#9ccfd8))}
 .findbar{position:absolute;top:8px;right:18px;display:flex;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
 .findbar input{width:220px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:6px 8px;outline:0}
+.find-count{min-width:48px;align-self:center;text-align:center;color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;white-space:nowrap}
 .statusbar{height:27px;display:flex;align-items:center;gap:14px;padding:0 10px;border-top:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;flex:0 0 auto}
 .statusbar .spacer{flex:1}
 .status-dirty{color:var(--remotehand-warning-text,#dfbd70)}
@@ -104,7 +105,9 @@ button:disabled{opacity:.45;cursor:default}
     <div id="empty" class="empty" hidden>No document is open.</div>
     <div id="findbar" class="findbar" hidden>
       <input id="findInput" type="text" autocomplete="off" placeholder="Find text">
-      <button id="findNext" type="button">Next</button>
+      <span id="findCount" class="find-count">0 of 0</span>
+      <button id="findPrev" type="button" title="Previous (Shift+Enter)">Previous</button>
+      <button id="findNext" type="button" title="Next (Enter)">Next</button>
       <button id="findClose" type="button" aria-label="Close find">×</button>
     </div>
   </div>
@@ -148,6 +151,7 @@ button:disabled{opacity:.45;cursor:default}
   const language = document.getElementById("language");
   const findbar = document.getElementById("findbar");
   const findInput = document.getElementById("findInput");
+  const findCount = document.getElementById("findCount");
   const modalBackdrop = document.getElementById("modalBackdrop");
   const modalTitle = document.getElementById("modalTitle");
   const modalMessage = document.getElementById("modalMessage");
@@ -702,6 +706,17 @@ button:disabled{opacity:.45;cursor:default}
     }
   }
 
+  function switchTab(direction) {
+    if (tabs.length < 2) return;
+    const current = tabs.findIndex(tab => tab.id === activeId);
+    const start = current >= 0 ? current : 0;
+    const next = (start + direction + tabs.length) % tabs.length;
+    activeId = tabs[next].id;
+    render();
+    schedulePersist();
+    requestAnimationFrame(() => editor.focus());
+  }
+
   async function closeTab(id) {
     const tab = tabs.find(item => item.id === id);
     if (!tab) return;
@@ -742,28 +757,78 @@ button:disabled{opacity:.45;cursor:default}
     if (tabs.length === 0) newDocument();
   }
 
+  function findMatches(query) {
+    const tab = activeTab();
+    if (!tab || !query) return [];
+    const haystack = tab.content.toLocaleLowerCase();
+    const needle = query.toLocaleLowerCase();
+    const matches = [];
+    let index = 0;
+    while ((index = haystack.indexOf(needle, index)) >= 0) {
+      matches.push(index);
+      index += Math.max(1, needle.length);
+    }
+    return matches;
+  }
+
+  function updateFindCount(query = findInput.value) {
+    const matches = findMatches(query);
+    if (!query || matches.length === 0) {
+      findCount.textContent = "0 of 0";
+      return matches;
+    }
+    const selectionStart = editor.selectionStart;
+    let current = matches.findIndex(index => index === selectionStart);
+    if (current < 0) current = 0;
+    findCount.textContent = (current + 1) + " of " + matches.length;
+    return matches;
+  }
+
   function openFind() {
     findbar.hidden = false;
     const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
     if (selected) findInput.value = selected;
+    updateFindCount();
     findInput.focus();
     findInput.select();
   }
 
-  function findNext() {
+  function findMove(direction) {
     const query = findInput.value;
     const tab = activeTab();
-    if (!tab || !query) return;
-    const haystack = tab.content.toLocaleLowerCase();
-    const needle = query.toLocaleLowerCase();
-    let index = haystack.indexOf(needle, editor.selectionEnd);
-    if (index < 0) index = haystack.indexOf(needle, 0);
-    if (index >= 0) {
-      editor.focus();
-      editor.setSelectionRange(index, index + query.length);
-      updatePosition();
+    if (!tab || !query) {
+      updateFindCount(query);
+      return;
     }
+    const matches = findMatches(query);
+    if (matches.length === 0) {
+      findCount.textContent = "0 of 0";
+      return;
+    }
+
+    let target;
+    if (direction > 0) {
+      target = matches.find(index => index >= editor.selectionEnd);
+      if (target === undefined) target = matches[0];
+    } else {
+      for (let i = matches.length - 1; i >= 0; i--) {
+        if (matches[i] < editor.selectionStart) {
+          target = matches[i];
+          break;
+        }
+      }
+      if (target === undefined) target = matches[matches.length - 1];
+    }
+
+    editor.focus();
+    editor.setSelectionRange(target, target + query.length);
+    const current = matches.indexOf(target);
+    findCount.textContent = (current + 1) + " of " + matches.length;
+    updatePosition();
   }
+
+  function findNext() { findMove(1); }
+  function findPrevious() { findMove(-1); }
 
   function closeModal(value = null) {
     modalBackdrop.hidden = true;
@@ -803,15 +868,18 @@ button:disabled{opacity:.45;cursor:default}
   document.getElementById("saveBtn").addEventListener("click", () => saveTab());
   document.getElementById("saveAsBtn").addEventListener("click", () => saveAsTab());
   document.getElementById("findBtn").addEventListener("click", openFind);
+  document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
   document.getElementById("findClose").addEventListener("click", () => { findbar.hidden = true; editor.focus(); });
   document.getElementById("recoverySave").addEventListener("click", () => saveTab());
   document.getElementById("recoveryDiscard").addEventListener("click", () => discardRecovered(activeTab()));
 
+  findInput.addEventListener("input", () => updateFindCount());
   findInput.addEventListener("keydown", event => {
     if (event.key === "Enter") {
       event.preventDefault();
-      findNext();
+      if (event.shiftKey) findPrevious();
+      else findNext();
     } else if (event.key === "Escape") {
       event.preventDefault();
       findbar.hidden = true;
@@ -821,6 +889,75 @@ button:disabled{opacity:.45;cursor:default}
 
   modalBackdrop.addEventListener("mousedown", event => {
     if (event.target === modalBackdrop) closeModal(null);
+  });
+
+  editor.addEventListener("keydown", event => {
+    const tab = activeTab();
+    if (!tab) return;
+
+    if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      const start = editor.selectionStart;
+      const end = editor.selectionEnd;
+      const value = editor.value;
+      const indent = "    ";
+
+      if (start !== end && value.slice(start, end).includes("\n")) {
+        const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+        const selectedEnd = end > start && value[end - 1] === "\n" ? end - 1 : end;
+        const lineEndPos = value.indexOf("\n", selectedEnd);
+        const lineEnd = lineEndPos >= 0 ? lineEndPos : value.length;
+        const block = value.slice(lineStart, lineEnd);
+
+        if (event.shiftKey) {
+          let removedBeforeStart = 0;
+          let removedTotal = 0;
+          let offset = 0;
+          const lines = block.split("\n");
+          const updated = lines.map((line, index) => {
+            const match = line.match(/^( {1,4}|\t)/);
+            const remove = match ? match[0].length : 0;
+            if (index === 0) removedBeforeStart = Math.min(remove, start - lineStart);
+            removedTotal += remove;
+            offset += line.length + 1;
+            return line.slice(remove);
+          }).join("\n");
+          editor.setRangeText(updated, lineStart, lineEnd, "preserve");
+          editor.setSelectionRange(
+            Math.max(lineStart, start - removedBeforeStart),
+            Math.max(lineStart, end - removedTotal)
+          );
+        } else {
+          const updated = block.split("\n").map(line => indent + line).join("\n");
+          editor.setRangeText(updated, lineStart, lineEnd, "preserve");
+          const lineCount = block.split("\n").length;
+          editor.setSelectionRange(start + indent.length, end + indent.length * lineCount);
+        }
+      } else if (event.shiftKey) {
+        const lineStart = value.lastIndexOf("\n", start - 1) + 1;
+        const match = value.slice(lineStart).match(/^( {1,4}|\t)/);
+        if (match) {
+          const remove = match[0].length;
+          editor.setRangeText("", lineStart, lineStart + remove, "preserve");
+          editor.setSelectionRange(Math.max(lineStart, start - remove), Math.max(lineStart, end - remove));
+        }
+      } else {
+        editor.setRangeText(indent, start, end, "end");
+      }
+      editor.dispatchEvent(new Event("input", { bubbles:true }));
+      return;
+    }
+
+    if (event.key === "Enter" && !event.ctrlKey && !event.altKey && !event.metaKey) {
+      event.preventDefault();
+      const start = editor.selectionStart;
+      const end = editor.selectionEnd;
+      const lineStart = editor.value.lastIndexOf("\n", start - 1) + 1;
+      const beforeCaret = editor.value.slice(lineStart, start);
+      const leading = (beforeCaret.match(/^[ \t]*/) || [""])[0];
+      editor.setRangeText("\n" + leading, start, end, "end");
+      editor.dispatchEvent(new Event("input", { bubbles:true }));
+    }
   });
 
   editor.addEventListener("input", () => {
@@ -850,7 +987,13 @@ button:disabled{opacity:.45;cursor:default}
 
   window.addEventListener("keydown", event => {
     const key = event.key.toLowerCase();
-    if (event.ctrlKey && !event.shiftKey && key === "n") {
+    if (event.ctrlKey && key === "tab") {
+      event.preventDefault();
+      switchTab(event.shiftKey ? -1 : 1);
+    } else if (event.ctrlKey && !event.shiftKey && key === "w") {
+      event.preventDefault();
+      closeTab(activeId);
+    } else if (event.ctrlKey && !event.shiftKey && key === "n") {
       event.preventDefault();
       newDocument();
     } else if (event.ctrlKey && !event.shiftKey && key === "o") {
