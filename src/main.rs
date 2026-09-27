@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::{self, ErrorKind, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 const PLUGIN_ID: &str = "remotehand.editor";
 const PLUGIN_VERSION: &str = "0.1.0";
