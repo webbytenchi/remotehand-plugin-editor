@@ -298,7 +298,7 @@ fn dispatch(
                 .map_err(|error| format!("invalid file.write request: {error}"))?;
             write_text_file(Path::new(&params.path), &params.content)
         }
-        "file.saveAs" => {
+        "file.save_as" => {
             #[derive(Deserialize)]
             #[serde(rename_all = "camelCase")]
             struct Params {
@@ -306,7 +306,7 @@ fn dispatch(
                 content: String,
             }
             let params: Params = serde_json::from_value(request.params.clone())
-                .map_err(|error| format!("invalid file.saveAs request: {error}"))?;
+                .map_err(|error| format!("invalid file.save_as request: {error}"))?;
             if params.content.len() as u64 > MAX_FILE_BYTES {
                 return Err("content exceeds the Editor 8 MiB limit".to_string());
             }
