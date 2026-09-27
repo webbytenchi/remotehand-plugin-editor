@@ -2,7 +2,7 @@
 
 RemoteHand Editor is a lightweight programmer-focused text and code editor for RemoteHand.
 
-Version **0.1.0** establishes the first usable Editor baseline: real local files, recovery-safe scratch documents, tabbed editing, syntax highlighting, search, keyboard editing shortcuts, and RemoteHand-native appearance integration without trying to become a full IDE.
+Version **0.2.0** builds on the first usable Editor baseline with Find/Replace, document-focused undo/redo behavior, and generic file-opening integration from other RemoteHand plugins.
 
 ## Requirements
 
@@ -12,9 +12,11 @@ RemoteHand Editor v0.1.0 requires the RemoteHand Plugin API v1 host capabilities
 - host-owned native file open/save dialogs
 - RemoteHand appearance data for UI and terminal fonts/colors
 
-The intended minimum RemoteHand baseline for the v0.1.0 release is **v1.2.17**.
+The Editor's standalone file/editing capabilities require **RemoteHand v1.2.17 or later**.
 
-## v0.1.0 features
+Cross-plugin file opening, including File Manager's **Open in Editor** action, requires **RemoteHand v1.2.20 or later**.
+
+## v0.2.0 features
 
 ### Documents and files
 
@@ -62,16 +64,20 @@ Tab navigation wraps from the last tab to the first and vice versa.
 - Enter preserves the current line's leading indentation
 - standard textarea undo/redo and selection behavior
 
-### Find
+### Find and Replace
 
 - `Ctrl+F` opens Find
+- `Ctrl+H` opens Find/Replace
 - Enter selects the next match
 - `Shift+Enter` selects the previous match
+- Replace and Replace All
+- keyboard replacement shortcuts
 - Previous / Next buttons
 - current-match counter such as `2 of 7`
 - active match is visibly highlighted
 - off-screen matches are brought into view
-- Esc, close button, or clicking outside dismisses Find
+- document-focused undo/redo preserves expected ordering between replacement edits and subsequent typing
+- Esc, close button, or clicking outside dismisses Find/Replace
 
 ### Syntax highlighting
 
@@ -93,6 +99,15 @@ v0.1.0 includes lightweight syntax highlighting for common programmer file types
 Language mode is inferred from the filename extension. Plain text remains unhighlighted.
 
 The v0.1.0 highlighter is intentionally lightweight; it is not a full parser or language server.
+
+### Cross-plugin file opening
+
+Editor can receive a generic panel context containing a local file path. When another plugin requests that file:
+
+- Editor waits for session restoration before applying an incoming startup request
+- an already-open path activates its existing tab
+- a new supported text file opens in a normal Editor tab
+- normal Editor file-size, UTF-8, and binary-content safety checks still apply
 
 ### RemoteHand appearance integration
 
@@ -151,7 +166,7 @@ The build script creates:
 
 ```text
 dist\remotehand-editor-windows-x86_64\
-dist\remotehand-editor-v0.1.0-windows-x86_64.zip
+dist\remotehand-editor-v0.2.0-windows-x86_64.zip
 dist\SHA256SUMS.txt
 ```
 
@@ -163,7 +178,6 @@ The first release deliberately keeps scope small:
 
 - UTF-8 only
 - no external-file-change/conflict detection yet
-- no Replace / Replace All yet
 - no go-to-line UI yet
 - no word-wrap control yet
 - no bracket matching or code folding
@@ -173,7 +187,7 @@ The first release deliberately keeps scope small:
 
 ## Future directions
 
-Possible later additions include Replace / Replace All, go to line, configurable indentation, word wrap, visible whitespace, bracket matching, recently closed tabs, split views, Markdown preview, JSON formatting, compare/diff, and richer syntax support.
+Possible later additions include go to line, configurable indentation, word wrap, visible whitespace, bracket matching, recently closed tabs, split views, Markdown preview, JSON formatting, compare/diff, and richer syntax support.
 
 ## License
 

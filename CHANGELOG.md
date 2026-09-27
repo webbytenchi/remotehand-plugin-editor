@@ -2,6 +2,27 @@
 
 All notable changes to RemoteHand Editor are documented here.
 
+## [0.2.0] - 2026-09-28
+
+### Added
+
+- Find/Replace mode with Replace, Replace All, next/previous match navigation, and keyboard shortcuts
+- document-focused custom undo/redo history so replacement edits and subsequent typing undo in the expected document order
+- quick creation of a new untitled tab from the tab strip
+- generic RemoteHand panel-context support for opening a file path supplied by another plugin
+- startup queuing for incoming file-open context until Editor session restoration completes
+- existing-tab reuse when an incoming file path is already open
+
+### Integration
+
+- RemoteHand File Manager v0.2.0 can open supported text/code files directly in Editor through RemoteHand's generic plugin-panel host API.
+- File Manager integration requires RemoteHand v1.2.20 or later.
+
+### Verification
+
+- Manual Windows acceptance confirmed Replace All plus subsequent typing undo in document order.
+- Manual Windows acceptance confirmed File Manager opens supported text files in Editor and reuses an existing tab for the same path.
+
 ## [0.1.0] - 2026-09-27
 
 Initial usable RemoteHand Editor release.

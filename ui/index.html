@@ -55,8 +55,13 @@ button:disabled{opacity:.45;cursor:default}
 .syn-tag{color:var(--remotehand-accent-text,var(--remotehand-text,#7fb4e8))}
 .syn-heading{color:var(--remotehand-accent-text,var(--remotehand-text,#7fb4e8));font-weight:600}
 .syn-property{color:var(--remotehand-accent-text,var(--remotehand-text,#9ccfd8))}
-.findbar{position:absolute;top:8px;right:18px;z-index:5;display:flex;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
-.findbar input{width:220px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:6px 8px;outline:0}
+.findbar{position:absolute;top:8px;right:18px;z-index:5;display:flex;flex-direction:column;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
+.find-row,.replace-row{display:flex;align-items:center;gap:5px}
+.findbar input[type="text"]{width:220px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:6px 8px;outline:0}
+.replace-toggle{display:flex;align-items:center;gap:5px;padding:0 4px;color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;white-space:nowrap;cursor:pointer;user-select:none}
+.replace-toggle input{margin:0}
+.replace-row{padding-top:1px}
+.replace-row::before{content:"";width:220px;display:none}
 .find-count{min-width:48px;align-self:center;text-align:center;color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;white-space:nowrap}
 .statusbar{height:27px;display:flex;align-items:center;gap:14px;padding:0 10px;border-top:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;flex:0 0 auto}
 .statusbar .spacer{flex:1}
@@ -107,11 +112,22 @@ button:disabled{opacity:.45;cursor:default}
     </div>
     <div id="empty" class="empty" hidden>No document is open.</div>
     <div id="findbar" class="findbar" hidden>
-      <input id="findInput" type="text" autocomplete="off" placeholder="Find text">
-      <span id="findCount" class="find-count">0 of 0</span>
-      <button id="findPrev" type="button" title="Previous (Shift+Enter)">Previous</button>
-      <button id="findNext" type="button" title="Next (Enter)">Next</button>
-      <button id="findClose" type="button" aria-label="Close find">×</button>
+      <div class="find-row">
+        <input id="findInput" type="text" autocomplete="off" placeholder="Find text">
+        <label class="replace-toggle" title="Show replace controls">
+          <input id="replaceToggle" type="checkbox">
+          <span>Replace</span>
+        </label>
+        <span id="findCount" class="find-count">0 of 0</span>
+        <button id="findPrev" type="button" title="Previous (Shift+Enter)">Previous</button>
+        <button id="findNext" type="button" title="Next (Enter)">Next</button>
+        <button id="findClose" type="button" aria-label="Close find">×</button>
+      </div>
+      <div id="replaceRow" class="replace-row" hidden>
+        <input id="replaceInput" type="text" autocomplete="off" placeholder="Replace with">
+        <button id="replaceOne" type="button" title="Replace current (Ctrl+Enter)">Replace</button>
+        <button id="replaceAll" type="button" title="Replace All (Ctrl+Alt+Enter)">Replace All</button>
+      </div>
     </div>
   </div>
 
@@ -157,6 +173,11 @@ button:disabled{opacity:.45;cursor:default}
   const findbar = document.getElementById("findbar");
   const findInput = document.getElementById("findInput");
   const findCount = document.getElementById("findCount");
+  const replaceToggle = document.getElementById("replaceToggle");
+  const replaceRow = document.getElementById("replaceRow");
+  const replaceInput = document.getElementById("replaceInput");
+  const replaceOneBtn = document.getElementById("replaceOne");
+  const replaceAllBtn = document.getElementById("replaceAll");
   const modalBackdrop = document.getElementById("modalBackdrop");
   const modalTitle = document.getElementById("modalTitle");
   const modalMessage = document.getElementById("modalMessage");
@@ -170,6 +191,11 @@ button:disabled{opacity:.45;cursor:default}
   let modalResolve = null;
   let nativeDialogPending = false;
   let draggedTabId = null;
+  let sessionRestored = false;
+  let pendingContextPath = "";
+  const undoHistoryByTab = new Map();
+  const redoHistoryByTab = new Map();
+  let applyingHistory = false;
 
   const basename = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || String(path || "");
 
@@ -617,33 +643,58 @@ button:disabled{opacity:.45;cursor:default}
     updatePosition();
   }
 
+  function activateOpenedFile(result) {
+    if (!result || !result.path) return false;
+    const existing = tabs.find(tab => tab.path === result.path);
+    if (existing) {
+      activeId = existing.id;
+      render();
+      requestAnimationFrame(() => editor.focus());
+      return true;
+    }
+    const tab = {
+      id: makeId(),
+      name: result.name || basename(result.path),
+      path: result.path,
+      content: result.content || "",
+      dirty: false,
+      recovered: false,
+      encoding: result.encoding || "UTF-8",
+      eol: result.eol || detectEol(result.content || ""),
+      cursor: 0
+    };
+    tabs.push(tab);
+    activeId = tab.id;
+    render();
+    requestAnimationFrame(() => editor.focus());
+    return true;
+  }
+
+  async function openPath(path) {
+    const value = String(path || "").trim();
+    if (!value) return;
+    const existing = tabs.find(tab => tab.path === value);
+    if (existing) {
+      activeId = existing.id;
+      render();
+      requestAnimationFrame(() => editor.focus());
+      return;
+    }
+    try {
+      const result = await request("file.read", { path: value });
+      if (activateOpenedFile(result)) await persistNow();
+    } catch (error) {
+      await messageModal("Could not open file", String(error));
+    }
+  }
+
   async function openFile() {
     if (nativeDialogPending) return;
     nativeDialogPending = true;
     try {
       const result = await request("file.open");
       if (!result || result.opened === false || !result.path) return;
-      const existing = tabs.find(tab => tab.path === result.path);
-      if (existing) {
-        activeId = existing.id;
-        render();
-        return;
-      }
-      const tab = {
-        id: makeId(),
-        name: result.name || basename(result.path),
-        path: result.path,
-        content: result.content || "",
-        dirty: false,
-        recovered: false,
-        encoding: result.encoding || "UTF-8",
-        eol: result.eol || detectEol(result.content || ""),
-        cursor: 0
-      };
-      tabs.push(tab);
-      activeId = tab.id;
-      render();
-      requestAnimationFrame(() => editor.focus());
+      activateOpenedFile(result);
     } catch (error) {
       await messageModal("Could not open file", String(error));
     } finally {
@@ -816,8 +867,17 @@ button:disabled{opacity:.45;cursor:default}
 
   function updateFindCount(query = findInput.value) {
     const matches = findMatches(query);
-    if (!query || matches.length === 0) {
+    const hasMatches = Boolean(query) && matches.length > 0;
+    replaceOneBtn.disabled = !hasMatches;
+    replaceAllBtn.disabled = !hasMatches;
+
+    if (!query) {
       findCount.textContent = "0 of 0";
+      clearFindHighlight();
+      return matches;
+    }
+    if (matches.length === 0) {
+      findCount.textContent = "No matches";
       clearFindHighlight();
       return matches;
     }
@@ -834,8 +894,14 @@ button:disabled{opacity:.45;cursor:default}
     if (focusEditor) editor.focus();
   }
 
-  function openFind() {
+  function syncReplaceMode() {
+    replaceRow.hidden = !replaceToggle.checked;
+  }
+
+  function openFind(replaceMode = false) {
     findbar.hidden = false;
+    replaceToggle.checked = replaceMode;
+    syncReplaceMode();
     const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
     if (selected) findInput.value = selected;
     updateFindCount();
@@ -883,6 +949,136 @@ button:disabled{opacity:.45;cursor:default}
   function findNext() { findMove(1); }
   function findPrevious() { findMove(-1); }
 
+  function selectionMatchesFind() {
+    const query = findInput.value;
+    if (!query) return false;
+    const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    return selected.toLocaleLowerCase() === query.toLocaleLowerCase();
+  }
+
+  function focusEditorAfterReplaceCompletion() {
+    requestAnimationFrame(() => {
+      editor.focus({ preventScroll:true });
+    });
+  }
+
+  function historyStack(map, tabId = activeId) {
+    if (!tabId) return [];
+    let stack = map.get(tabId);
+    if (!stack) {
+      stack = [];
+      map.set(tabId, stack);
+    }
+    return stack;
+  }
+
+  function recordDocumentEdit(tab, before, after, beforeCursor, afterCursor) {
+    if (!tab || before === after || applyingHistory) return;
+    const undo = historyStack(undoHistoryByTab, tab.id);
+    undo.push({ before, after, beforeCursor, afterCursor });
+    if (undo.length > 500) undo.shift();
+    historyStack(redoHistoryByTab, tab.id).length = 0;
+  }
+
+  function restoreDocumentSnapshot(value, cursor) {
+    const tab = activeTab();
+    if (!tab) return;
+    applyingHistory = true;
+    editor.focus({ preventScroll:true });
+    editor.value = value;
+    const caret = Math.min(Math.max(0, cursor ?? value.length), value.length);
+    editor.setSelectionRange(caret, caret);
+    editor.dispatchEvent(new Event("input", { bubbles:true }));
+    applyingHistory = false;
+  }
+
+  function undoDocumentIfAvailable() {
+    const tab = activeTab();
+    if (!tab) return false;
+    const undo = historyStack(undoHistoryByTab, tab.id);
+    const entry = undo[undo.length - 1];
+    if (!entry || editor.value !== entry.after) return false;
+    undo.pop();
+    historyStack(redoHistoryByTab, tab.id).push(entry);
+    restoreDocumentSnapshot(entry.before, entry.beforeCursor);
+    return true;
+  }
+
+  function redoDocumentIfAvailable() {
+    const tab = activeTab();
+    if (!tab) return false;
+    const redo = historyStack(redoHistoryByTab, tab.id);
+    const entry = redo[redo.length - 1];
+    if (!entry || editor.value !== entry.before) return false;
+    redo.pop();
+    historyStack(undoHistoryByTab, tab.id).push(entry);
+    restoreDocumentSnapshot(entry.after, entry.afterCursor);
+    return true;
+  }
+
+  function replaceEditorRange(start, end, replacement) {
+    editor.focus({ preventScroll:true });
+    editor.setSelectionRange(start, end);
+
+    // Chromium/WebView adds execCommand insertText to the textarea's native
+    // undo stack, unlike a direct value/setRangeText mutation.
+    const changedWithNativeUndo = document.execCommand("insertText", false, replacement);
+    if (!changedWithNativeUndo) {
+      editor.setRangeText(replacement, start, end, "end");
+      editor.dispatchEvent(new Event("input", { bubbles:true }));
+    }
+  }
+
+  function replaceCurrent() {
+    const query = findInput.value;
+    const tab = activeTab();
+    if (!tab || !query) {
+      updateFindCount(query);
+      return;
+    }
+
+    if (!selectionMatchesFind()) findNext();
+    if (!selectionMatchesFind()) return;
+
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    replaceEditorRange(start, end, replaceInput.value);
+    findNext();
+    if (findMatches(query).length === 0) {
+      focusEditorAfterReplaceCompletion();
+    }
+  }
+
+  function replaceAllMatches() {
+    const query = findInput.value;
+    const tab = activeTab();
+    if (!tab || !query) {
+      updateFindCount(query);
+      return;
+    }
+
+    const matches = findMatches(query);
+    if (matches.length === 0) {
+      updateFindCount(query);
+      return;
+    }
+
+    const original = editor.value;
+    const replacement = replaceInput.value;
+    let output = "";
+    let cursor = 0;
+    for (const index of matches) {
+      output += original.slice(cursor, index) + replacement;
+      cursor = index + query.length;
+    }
+    output += original.slice(cursor);
+
+    // Replace All is one logical document edit.
+    replaceEditorRange(0, original.length, output);
+    updateFindCount(query);
+    focusEditorAfterReplaceCompletion();
+  }
+
   function closeModal(value = null) {
     modalBackdrop.hidden = true;
     modalActions.replaceChildren();
@@ -920,10 +1116,13 @@ button:disabled{opacity:.45;cursor:default}
   document.getElementById("openBtn").addEventListener("click", openFile);
   document.getElementById("saveBtn").addEventListener("click", () => saveTab());
   document.getElementById("saveAsBtn").addEventListener("click", () => saveAsTab());
-  document.getElementById("findBtn").addEventListener("click", openFind);
+  document.getElementById("findBtn").addEventListener("click", () => openFind(false));
   document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
+  replaceOneBtn.addEventListener("click", replaceCurrent);
+  replaceAllBtn.addEventListener("click", replaceAllMatches);
   document.getElementById("findClose").addEventListener("click", () => closeFind(true));
+  replaceToggle.addEventListener("change", syncReplaceMode);
   document.getElementById("recoverySave").addEventListener("click", () => saveTab());
   document.getElementById("recoveryDiscard").addEventListener("click", () => discardRecovered(activeTab()));
 
@@ -931,15 +1130,41 @@ button:disabled{opacity:.45;cursor:default}
     clearFindHighlight();
     updateFindCount();
   });
-  findInput.addEventListener("keydown", event => {
+  function handleFindReplaceKeydown(event) {
+    const key = event.key.toLowerCase();
+
+    // When Find/Replace owns focus, intercept replacement undo/redo here
+    // before the focused text field can apply its own native input history.
+    if (event.ctrlKey && !event.altKey && key === "z" && !event.shiftKey && undoDocumentIfAvailable()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+    if (event.ctrlKey && !event.altKey && ((key === "y" && !event.shiftKey) || (key === "z" && event.shiftKey)) && redoDocumentIfAvailable()) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
     if (event.key === "Enter") {
       event.preventDefault();
-      if (event.shiftKey) findPrevious();
+      if (event.ctrlKey && event.altKey) replaceAllMatches();
+      else if (event.ctrlKey) replaceCurrent();
+      else if (event.shiftKey) findPrevious();
       else findNext();
     } else if (event.key === "Escape") {
       event.preventDefault();
       closeFind(true);
     }
+  }
+
+  findInput.addEventListener("keydown", handleFindReplaceKeydown);
+  replaceInput.addEventListener("keydown", handleFindReplaceKeydown);
+
+  tabsHost.addEventListener("dblclick", event => {
+    if (event.target !== tabsHost) return;
+    event.preventDefault();
+    newDocument();
   });
 
   document.addEventListener("mousedown", event => {
@@ -1025,7 +1250,12 @@ button:disabled{opacity:.45;cursor:default}
   editor.addEventListener("input", () => {
     const tab = activeTab();
     if (!tab) return;
-    tab.content = editor.value;
+    const before = tab.content;
+    const beforeCursor = tab.cursor || 0;
+    const after = editor.value;
+    const afterCursor = editor.selectionStart;
+    recordDocumentEdit(tab, before, after, beforeCursor, afterCursor);
+    tab.content = after;
     if (!findbar.hidden) {
       clearFindHighlight();
       updateFindCount();
@@ -1053,8 +1283,24 @@ button:disabled{opacity:.45;cursor:default}
   editor.addEventListener("keyup", updatePosition);
   editor.addEventListener("select", updatePosition);
 
+  // Capture replace undo/redo before focused Find/Replace inputs can consume
+  // the browser's native Ctrl+Z / Ctrl+Y history.
   window.addEventListener("keydown", event => {
     const key = event.key.toLowerCase();
+    if (event.ctrlKey && !event.altKey && key === "z" && !event.shiftKey && undoDocumentIfAvailable()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+    if (event.ctrlKey && !event.altKey && ((key === "y" && !event.shiftKey) || (key === "z" && event.shiftKey)) && redoDocumentIfAvailable()) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }, true);
+
+  window.addEventListener("keydown", event => {
+    const key = event.key.toLowerCase();
+
     if (event.ctrlKey && key === "tab") {
       event.preventDefault();
       switchTab(event.shiftKey ? -1 : 1);
@@ -1075,7 +1321,10 @@ button:disabled{opacity:.45;cursor:default}
       saveAsTab();
     } else if (event.ctrlKey && !event.shiftKey && key === "f") {
       event.preventDefault();
-      openFind();
+      openFind(false);
+    } else if (event.ctrlKey && !event.shiftKey && key === "h") {
+      event.preventDefault();
+      openFind(true);
     } else if (event.key === "Escape" && !findbar.hidden) {
       event.preventDefault();
       closeFind(true);
@@ -1088,7 +1337,29 @@ button:disabled{opacity:.45;cursor:default}
   window.addEventListener("blur", () => persistNow());
   window.addEventListener("pagehide", () => persistNow());
 
-  restoreSession();
+  function handlePluginContext(context) {
+    const path = context && typeof context.path === "string" ? context.path.trim() : "";
+    if (!path) return;
+    if (!sessionRestored) {
+      pendingContextPath = path;
+      return;
+    }
+    void openPath(path);
+  }
+
+  window.addEventListener("remotehand-plugin-context", event => {
+    handlePluginContext(event.detail);
+  });
+
+  restoreSession().then(() => {
+    sessionRestored = true;
+    const initialPath = pendingContextPath ||
+      (window.__REMOTEHAND_PLUGIN_CONTEXT__ && typeof window.__REMOTEHAND_PLUGIN_CONTEXT__.path === "string"
+        ? window.__REMOTEHAND_PLUGIN_CONTEXT__.path.trim()
+        : "");
+    pendingContextPath = "";
+    if (initialPath) void openPath(initialPath);
+  });
 })();
 </script>
 </body>
