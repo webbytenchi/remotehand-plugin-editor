@@ -34,7 +34,20 @@ button:disabled{opacity:.45;cursor:default}
 .workspace{min-height:0;flex:1;display:flex;position:relative}
 .editor-wrap{min-width:0;min-height:0;flex:1;display:grid;grid-template-columns:auto minmax(0,1fr);background:var(--remotehand-background,#11151a)}
 .gutter{min-width:48px;padding:10px 9px 40px 6px;text-align:right;white-space:pre;overflow:hidden;border-right:1px solid var(--remotehand-border,#2b3540);background:var(--remotehand-surface,#151b22);color:var(--remotehand-muted-text,#718096);font:13px/1.55 Consolas,"Cascadia Code","Courier New",monospace;user-select:none}
-.editor{width:100%;height:100%;resize:none;border:0;outline:0;padding:10px 12px 40px;background:transparent;color:var(--remotehand-text,#e6edf3);caret-color:var(--remotehand-text,#fff);font:13px/1.55 Consolas,"Cascadia Code","Courier New",monospace;tab-size:4;white-space:pre;overflow:auto}
+.editor-stack{position:relative;min-width:0;min-height:0;overflow:hidden}
+.syntax-layer,.editor{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;padding:10px 12px 40px;font:13px/1.55 Consolas,"Cascadia Code","Courier New",monospace;tab-size:4;white-space:pre;overflow:auto}
+.syntax-layer{pointer-events:none;background:transparent;color:var(--remotehand-text,#e6edf3);overflow:hidden}
+.syntax-layer code{font:inherit;white-space:pre}
+.editor{resize:none;outline:0;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--remotehand-text,#fff);z-index:1}
+.editor::selection{background:rgba(102,153,204,.35)}
+.syn-comment{color:var(--remotehand-muted-text,#718096);font-style:italic}
+.syn-string{color:#a8d080}
+.syn-number{color:#d5a76f}
+.syn-keyword{color:#7fb4e8}
+.syn-literal{color:#c99be8}
+.syn-tag{color:#7fb4e8}
+.syn-heading{color:#7fb4e8;font-weight:600}
+.syn-property{color:#9ccfd8}
 .findbar{position:absolute;top:8px;right:18px;display:flex;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
 .findbar input{width:220px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:6px 8px;outline:0}
 .statusbar{height:27px;display:flex;align-items:center;gap:14px;padding:0 10px;border-top:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;flex:0 0 auto}
@@ -74,7 +87,10 @@ button:disabled{opacity:.45;cursor:default}
   <div class="workspace">
     <div id="editorWrap" class="editor-wrap">
       <div id="gutter" class="gutter">1</div>
-      <textarea id="editor" class="editor" autocomplete="off" autocapitalize="off" spellcheck="false" wrap="off"></textarea>
+      <div class="editor-stack">
+        <pre id="syntaxLayer" class="syntax-layer" aria-hidden="true"><code id="syntaxCode"></code></pre>
+        <textarea id="editor" class="editor" autocomplete="off" autocapitalize="off" spellcheck="false" wrap="off"></textarea>
+      </div>
     </div>
     <div id="empty" class="empty" hidden>No document is open.</div>
     <div id="findbar" class="findbar" hidden>
