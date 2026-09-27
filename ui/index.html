@@ -1,0 +1,624 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor</title>
+<style>
+*{box-sizing:border-box}
+html,body{width:100%;height:100%;margin:0}
+body{font-family:var(--remotehand-ui-font-family,Inter,ui-sans-serif,system-ui,sans-serif);font-size:var(--remotehand-ui-font-size,13px);background:var(--remotehand-background,#11151a);color:var(--remotehand-text,#dee5ef);overflow:hidden}
+[hidden]{display:none!important}
+button,input,textarea{font:inherit}
+button{border:1px solid var(--remotehand-border,#3d4a58);background:var(--remotehand-button-background,#232c37);color:var(--remotehand-text,#f3f7fb);border-radius:7px;padding:6px 10px;cursor:pointer}
+button:hover{background:var(--remotehand-button-hover,#2a3542)}
+button:disabled{opacity:.45;cursor:default}
+.shell{height:100%;display:flex;flex-direction:column;min-height:0}
+.toolbar{height:45px;display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);flex:0 0 auto}
+.toolbar .spacer{flex:1}
+.tool{height:30px}
+.tabs{height:38px;display:flex;align-items:end;gap:2px;padding:5px 8px 0;border-bottom:1px solid var(--remotehand-border,#2e3743);overflow-x:auto;overflow-y:hidden;flex:0 0 auto;background:var(--remotehand-surface,#151b22)}
+.tab{display:flex;align-items:center;gap:6px;max-width:220px;height:32px;padding:0 8px 0 10px;border:1px solid transparent;border-bottom:0;border-radius:7px 7px 0 0;color:var(--remotehand-muted-text,#9aa8b8);white-space:nowrap;cursor:pointer}
+.tab.active{background:var(--remotehand-background,#11151a);border-color:var(--remotehand-border,#2e3743);color:var(--remotehand-text,#eef3f8)}
+.tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.dirty{font-size:16px;line-height:1}
+.tab-close{border:0;background:transparent;padding:1px 4px;border-radius:4px;color:inherit}
+.tab-close:hover{background:var(--remotehand-button-hover,#2a3542)}
+.recovery{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--remotehand-warning-border,#765f32);background:var(--remotehand-warning-surface,#2a2418);color:var(--remotehand-text,#f4ead1);flex:0 0 auto}
+.recovery strong{white-space:nowrap}
+.recovery span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.recovery .spacer{flex:1}
+.workspace{min-height:0;flex:1;display:flex;position:relative}
+.editor-wrap{min-width:0;min-height:0;flex:1;display:grid;grid-template-columns:auto minmax(0,1fr);background:var(--remotehand-background,#11151a)}
+.gutter{min-width:48px;padding:10px 9px 40px 6px;text-align:right;white-space:pre;overflow:hidden;border-right:1px solid var(--remotehand-border,#2b3540);background:var(--remotehand-surface,#151b22);color:var(--remotehand-muted-text,#718096);font:13px/1.55 Consolas,"Cascadia Code","Courier New",monospace;user-select:none}
+.editor{width:100%;height:100%;resize:none;border:0;outline:0;padding:10px 12px 40px;background:transparent;color:var(--remotehand-text,#e6edf3);caret-color:var(--remotehand-text,#fff);font:13px/1.55 Consolas,"Cascadia Code","Courier New",monospace;tab-size:4;white-space:pre;overflow:auto}
+.findbar{position:absolute;top:8px;right:18px;display:flex;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
+.findbar input{width:220px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:6px 8px;outline:0}
+.statusbar{height:27px;display:flex;align-items:center;gap:14px;padding:0 10px;border-top:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;flex:0 0 auto}
+.statusbar .spacer{flex:1}
+.status-dirty{color:var(--remotehand-warning-text,#dfbd70)}
+.empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--remotehand-muted-text,#8290a0);pointer-events:none}
+.modal-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.56);display:flex;align-items:center;justify-content:center;padding:20px;z-index:20}
+.modal{width:min(470px,100%);border:1px solid var(--remotehand-border,#3d4a58);border-radius:11px;background:var(--remotehand-surface,#171d24);box-shadow:0 18px 60px rgba(0,0,0,.5);padding:17px}
+.modal h2{font-size:17px;margin:0 0 8px}
+.modal p{margin:0;color:var(--remotehand-muted-text,#a7b2bf);line-height:1.5}
+.modal-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:17px}
+.primary{border-color:var(--remotehand-accent-border,#5d7fa4);background:var(--remotehand-accent-surface,#19304a)}
+.danger{border-color:var(--remotehand-danger-border,#754448)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <div class="toolbar">
+    <button id="newBtn" class="tool" type="button" title="New (Ctrl+N)">New</button>
+    <button id="openBtn" class="tool" type="button" title="Open (Ctrl+O)">Open</button>
+    <button id="saveBtn" class="tool" type="button" title="Save (Ctrl+S)">Save</button>
+    <button id="saveAsBtn" class="tool" type="button" title="Save As (Ctrl+Shift+S)">Save As</button>
+    <span class="spacer"></span>
+    <button id="findBtn" class="tool" type="button" title="Find (Ctrl+F)">Find</button>
+  </div>
+
+  <div id="tabs" class="tabs"></div>
+
+  <div id="recovery" class="recovery" hidden>
+    <strong>Recovered unsaved changes</strong>
+    <span>This file contains edits restored from the previous session. The file on disk has not been updated.</span>
+    <span class="spacer"></span>
+    <button id="recoverySave" class="primary" type="button">Save</button>
+    <button id="recoveryDiscard" type="button">Discard recovered changes</button>
+  </div>
+
+  <div class="workspace">
+    <div id="editorWrap" class="editor-wrap">
+      <div id="gutter" class="gutter">1</div>
+      <textarea id="editor" class="editor" autocomplete="off" autocapitalize="off" spellcheck="false" wrap="off"></textarea>
+    </div>
+    <div id="empty" class="empty" hidden>No document is open.</div>
+    <div id="findbar" class="findbar" hidden>
+      <input id="findInput" type="text" autocomplete="off" placeholder="Find text">
+      <button id="findNext" type="button">Next</button>
+      <button id="findClose" type="button" aria-label="Close find">×</button>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span id="position">Ln 1, Col 1</span>
+    <span class="spacer"></span>
+    <span id="saveState"></span>
+    <span id="encoding">UTF-8</span>
+    <span id="eol">LF</span>
+    <span id="language">Plain Text</span>
+  </div>
+</div>
+
+<div id="modalBackdrop" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="modalTitle"></h2>
+    <p id="modalMessage"></p>
+    <div id="modalActions" class="modal-actions"></div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const request = (method, params = null) => window.remotehand.request(method, params);
+
+  const tabsHost = document.getElementById("tabs");
+  const editor = document.getElementById("editor");
+  const gutter = document.getElementById("gutter");
+  const editorWrap = document.getElementById("editorWrap");
+  const empty = document.getElementById("empty");
+  const recovery = document.getElementById("recovery");
+  const position = document.getElementById("position");
+  const saveState = document.getElementById("saveState");
+  const encoding = document.getElementById("encoding");
+  const eol = document.getElementById("eol");
+  const language = document.getElementById("language");
+  const findbar = document.getElementById("findbar");
+  const findInput = document.getElementById("findInput");
+  const modalBackdrop = document.getElementById("modalBackdrop");
+  const modalTitle = document.getElementById("modalTitle");
+  const modalMessage = document.getElementById("modalMessage");
+  const modalActions = document.getElementById("modalActions");
+
+  let tabs = [];
+  let activeId = null;
+  let untitledCounter = 1;
+  let persistTimer = null;
+  let persistInFlight = Promise.resolve();
+  let modalResolve = null;
+
+  const basename = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || String(path || "");
+
+  function languageFor(name) {
+    const ext = (String(name).match(/\.([^.]+)$/) || [,""])[1].toLowerCase();
+    return ({
+      txt:"Plain Text", log:"Log", md:"Markdown", json:"JSON", yaml:"YAML", yml:"YAML",
+      toml:"TOML", ini:"INI", xml:"XML", html:"HTML", htm:"HTML", css:"CSS",
+      js:"JavaScript", jsx:"JavaScript", ts:"TypeScript", tsx:"TypeScript",
+      py:"Python", rs:"Rust", go:"Go", c:"C", h:"C/C++", cpp:"C++", hpp:"C++",
+      cs:"C#", java:"Java", sh:"Shell", ps1:"PowerShell"
+    })[ext] || "Plain Text";
+  }
+
+  function detectEol(content) {
+    return content.includes("\r\n") ? "CRLF" : "LF";
+  }
+
+  function activeTab() {
+    return tabs.find(tab => tab.id === activeId) || null;
+  }
+
+  function makeId() {
+    return "doc-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2,8);
+  }
+
+  function newDocument(content = "") {
+    const tab = {
+      id: makeId(),
+      name: "Untitled " + untitledCounter++,
+      path: null,
+      content,
+      dirty: Boolean(content),
+      recovered: false,
+      encoding: "UTF-8",
+      eol: detectEol(content),
+      cursor: 0
+    };
+    tabs.push(tab);
+    activeId = tab.id;
+    render();
+    schedulePersist();
+    requestAnimationFrame(() => editor.focus());
+  }
+
+  function sessionPayload() {
+    return {
+      version: 1,
+      activeId,
+      untitledCounter,
+      tabs: tabs.map(tab => ({
+        id: tab.id,
+        name: tab.name,
+        path: tab.path,
+        content: tab.content,
+        dirty: Boolean(tab.dirty),
+        encoding: tab.encoding || "UTF-8",
+        eol: tab.eol || detectEol(tab.content),
+        cursor: Number.isFinite(tab.cursor) ? tab.cursor : 0
+      }))
+    };
+  }
+
+  function persistNow() {
+    clearTimeout(persistTimer);
+    persistTimer = null;
+    const snapshot = sessionPayload();
+    persistInFlight = persistInFlight
+      .catch(() => {})
+      .then(() => request("session.set", snapshot))
+      .catch(error => console.warn("Editor recovery save failed:", error));
+    return persistInFlight;
+  }
+
+  function schedulePersist(delay = 180) {
+    clearTimeout(persistTimer);
+    persistTimer = setTimeout(persistNow, delay);
+  }
+
+  async function restoreSession() {
+    let stored = null;
+    try {
+      stored = await request("session.get");
+    } catch (error) {
+      console.warn("Editor could not restore its previous session:", error);
+    }
+
+    if (!stored || !Array.isArray(stored.tabs) || stored.tabs.length === 0) {
+      newDocument();
+      return;
+    }
+
+    untitledCounter = Math.max(1, Number(stored.untitledCounter) || 1);
+    tabs = stored.tabs.map(raw => ({
+      id: typeof raw.id === "string" ? raw.id : makeId(),
+      name: typeof raw.name === "string" ? raw.name : "Untitled",
+      path: typeof raw.path === "string" && raw.path ? raw.path : null,
+      content: typeof raw.content === "string" ? raw.content : "",
+      dirty: Boolean(raw.dirty),
+      recovered: Boolean(raw.path && raw.dirty),
+      encoding: "UTF-8",
+      eol: raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || "")),
+      cursor: Math.max(0, Number(raw.cursor) || 0)
+    }));
+
+    for (const tab of tabs) {
+      if (!tab.path || tab.dirty) continue;
+      try {
+        const fresh = await request("file.read", { path: tab.path });
+        tab.content = fresh.content;
+        tab.name = fresh.name || basename(tab.path);
+        tab.eol = fresh.eol || detectEol(tab.content);
+      } catch (error) {
+        console.warn("Editor could not refresh remembered file:", tab.path, error);
+      }
+    }
+
+    activeId = tabs.some(tab => tab.id === stored.activeId) ? stored.activeId : tabs[0].id;
+    render();
+    schedulePersist(400);
+  }
+
+  function updateGutter() {
+    const tab = activeTab();
+    const count = tab ? Math.max(1, tab.content.split("\n").length) : 1;
+    let lines = "";
+    for (let i = 1; i <= count; i++) lines += i + (i === count ? "" : "\n");
+    gutter.textContent = lines;
+    gutter.scrollTop = editor.scrollTop;
+  }
+
+  function updatePosition() {
+    const tab = activeTab();
+    if (!tab) {
+      position.textContent = "Ln 1, Col 1";
+      return;
+    }
+    const caret = editor.selectionStart;
+    tab.cursor = caret;
+    const before = tab.content.slice(0, caret);
+    const line = before.split("\n").length;
+    const lastNewline = before.lastIndexOf("\n");
+    const col = caret - lastNewline;
+    position.textContent = `Ln ${line}, Col ${col}`;
+  }
+
+  function renderTabs() {
+    tabsHost.replaceChildren();
+    for (const tab of tabs) {
+      const item = document.createElement("div");
+      item.className = "tab" + (tab.id === activeId ? " active" : "");
+      item.title = tab.path || tab.name;
+      item.addEventListener("mousedown", event => {
+        if (event.button !== 0) return;
+        activeId = tab.id;
+        render();
+        requestAnimationFrame(() => editor.focus());
+        schedulePersist();
+      });
+
+      const name = document.createElement("span");
+      name.className = "tab-name";
+      name.textContent = tab.name;
+      item.appendChild(name);
+
+      if (tab.dirty) {
+        const dot = document.createElement("span");
+        dot.className = "dirty";
+        dot.textContent = "•";
+        dot.title = tab.recovered ? "Recovered edits not saved to disk" : "Not saved to disk";
+        item.appendChild(dot);
+      }
+
+      if (tab.recovered) {
+        const recovered = document.createElement("span");
+        recovered.textContent = "Recovered";
+        recovered.style.fontSize = "10px";
+        item.appendChild(recovered);
+      }
+
+      const close = document.createElement("button");
+      close.className = "tab-close";
+      close.type = "button";
+      close.textContent = "×";
+      close.title = "Close";
+      close.addEventListener("mousedown", event => {
+        event.stopPropagation();
+        event.preventDefault();
+      });
+      close.addEventListener("click", event => {
+        event.stopPropagation();
+        closeTab(tab.id);
+      });
+      item.appendChild(close);
+      tabsHost.appendChild(item);
+    }
+  }
+
+  function render() {
+    const tab = activeTab();
+    renderTabs();
+
+    const hasTab = Boolean(tab);
+    editorWrap.hidden = !hasTab;
+    empty.hidden = hasTab;
+    editor.disabled = !hasTab;
+
+    if (!tab) {
+      recovery.hidden = true;
+      saveState.textContent = "";
+      return;
+    }
+
+    if (editor.value !== tab.content) editor.value = tab.content;
+    const cursor = Math.min(tab.cursor || 0, tab.content.length);
+    editor.setSelectionRange(cursor, cursor);
+
+    recovery.hidden = !tab.recovered;
+    encoding.textContent = tab.encoding || "UTF-8";
+    eol.textContent = tab.eol || detectEol(tab.content);
+    language.textContent = languageFor(tab.name);
+    saveState.textContent = tab.dirty
+      ? (tab.recovered ? "Recovered • Not saved to disk" : "Modified • Not saved to disk")
+      : "Saved";
+    saveState.className = tab.dirty ? "status-dirty" : "";
+
+    updateGutter();
+    updatePosition();
+  }
+
+  async function openFile() {
+    try {
+      const result = await request("file.open");
+      if (!result || result.opened === false || !result.path) return;
+      const existing = tabs.find(tab => tab.path === result.path);
+      if (existing) {
+        activeId = existing.id;
+        render();
+        return;
+      }
+      const tab = {
+        id: makeId(),
+        name: result.name || basename(result.path),
+        path: result.path,
+        content: result.content || "",
+        dirty: false,
+        recovered: false,
+        encoding: result.encoding || "UTF-8",
+        eol: result.eol || detectEol(result.content || ""),
+        cursor: 0
+      };
+      tabs.push(tab);
+      activeId = tab.id;
+      render();
+      await persistNow();
+      requestAnimationFrame(() => editor.focus());
+    } catch (error) {
+      await messageModal("Could not open file", String(error));
+    }
+  }
+
+  async function saveTab(tab = activeTab()) {
+    if (!tab) return false;
+    if (!tab.path) return saveAsTab(tab);
+    try {
+      const result = await request("file.write", { path: tab.path, content: tab.content });
+      tab.name = result.name || basename(tab.path);
+      tab.dirty = false;
+      tab.recovered = false;
+      tab.eol = result.eol || detectEol(tab.content);
+      render();
+      await persistNow();
+      return true;
+    } catch (error) {
+      await messageModal("Could not save file", String(error));
+      return false;
+    }
+  }
+
+  async function saveAsTab(tab = activeTab()) {
+    if (!tab) return false;
+    try {
+      const suggested = tab.path ? tab.name : (tab.name.startsWith("Untitled ") ? "untitled.txt" : tab.name);
+      const result = await request("file.saveAs", { suggestedName: suggested, content: tab.content });
+      if (!result || !result.saved) return false;
+      tab.path = result.path;
+      tab.name = basename(result.path);
+      tab.dirty = false;
+      tab.recovered = false;
+      tab.eol = detectEol(tab.content);
+      render();
+      await persistNow();
+      return true;
+    } catch (error) {
+      await messageModal("Could not save file", String(error));
+      return false;
+    }
+  }
+
+  async function discardRecovered(tab) {
+    if (!tab || !tab.path) return;
+    try {
+      const fresh = await request("file.read", { path: tab.path });
+      tab.content = fresh.content || "";
+      tab.name = fresh.name || basename(tab.path);
+      tab.dirty = false;
+      tab.recovered = false;
+      tab.eol = fresh.eol || detectEol(tab.content);
+      tab.cursor = 0;
+      render();
+      await persistNow();
+      editor.focus();
+    } catch (error) {
+      await messageModal("Could not reload file", String(error));
+    }
+  }
+
+  async function closeTab(id) {
+    const tab = tabs.find(item => item.id === id);
+    if (!tab) return;
+
+    if (!tab.path) {
+      const choice = await choiceModal(
+        "Close unsaved document?",
+        `“${tab.name}” has never been saved as a file.`,
+        [
+          { id:"save", label:"Save As", primary:true },
+          { id:"discard", label:"Discard", danger:true },
+          { id:"cancel", label:"Cancel" }
+        ]
+      );
+      if (choice === "cancel" || choice === null) return;
+      if (choice === "save" && !(await saveAsTab(tab))) return;
+    } else if (tab.dirty) {
+      const choice = await choiceModal(
+        "Close modified file?",
+        `“${tab.name}” contains changes that have not been written to disk.`,
+        [
+          { id:"save", label:"Save", primary:true },
+          { id:"discard", label:"Discard", danger:true },
+          { id:"cancel", label:"Cancel" }
+        ]
+      );
+      if (choice === "cancel" || choice === null) return;
+      if (choice === "save" && !(await saveTab(tab))) return;
+    }
+
+    const index = tabs.findIndex(item => item.id === id);
+    tabs.splice(index, 1);
+    if (activeId === id) {
+      activeId = tabs[Math.min(index, tabs.length - 1)]?.id || null;
+    }
+    render();
+    await persistNow();
+    if (tabs.length === 0) newDocument();
+  }
+
+  function openFind() {
+    findbar.hidden = false;
+    const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
+    if (selected) findInput.value = selected;
+    findInput.focus();
+    findInput.select();
+  }
+
+  function findNext() {
+    const query = findInput.value;
+    const tab = activeTab();
+    if (!tab || !query) return;
+    const haystack = tab.content.toLocaleLowerCase();
+    const needle = query.toLocaleLowerCase();
+    let index = haystack.indexOf(needle, editor.selectionEnd);
+    if (index < 0) index = haystack.indexOf(needle, 0);
+    if (index >= 0) {
+      editor.focus();
+      editor.setSelectionRange(index, index + query.length);
+      updatePosition();
+    }
+  }
+
+  function closeModal(value = null) {
+    modalBackdrop.hidden = true;
+    modalActions.replaceChildren();
+    const resolve = modalResolve;
+    modalResolve = null;
+    if (resolve) resolve(value);
+  }
+
+  function choiceModal(title, message, choices) {
+    if (modalResolve) closeModal(null);
+    modalTitle.textContent = title;
+    modalMessage.textContent = message;
+    modalActions.replaceChildren();
+    modalBackdrop.hidden = false;
+
+    return new Promise(resolve => {
+      modalResolve = resolve;
+      for (const choice of choices) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = choice.label;
+        if (choice.primary) button.classList.add("primary");
+        if (choice.danger) button.classList.add("danger");
+        button.addEventListener("click", () => closeModal(choice.id));
+        modalActions.appendChild(button);
+      }
+    });
+  }
+
+  async function messageModal(title, message) {
+    await choiceModal(title, message, [{ id:"ok", label:"Close", primary:true }]);
+  }
+
+  document.getElementById("newBtn").addEventListener("click", () => newDocument());
+  document.getElementById("openBtn").addEventListener("click", openFile);
+  document.getElementById("saveBtn").addEventListener("click", () => saveTab());
+  document.getElementById("saveAsBtn").addEventListener("click", () => saveAsTab());
+  document.getElementById("findBtn").addEventListener("click", openFind);
+  document.getElementById("findNext").addEventListener("click", findNext);
+  document.getElementById("findClose").addEventListener("click", () => { findbar.hidden = true; editor.focus(); });
+  document.getElementById("recoverySave").addEventListener("click", () => saveTab());
+  document.getElementById("recoveryDiscard").addEventListener("click", () => discardRecovered(activeTab()));
+
+  findInput.addEventListener("keydown", event => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      findNext();
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      findbar.hidden = true;
+      editor.focus();
+    }
+  });
+
+  modalBackdrop.addEventListener("mousedown", event => {
+    if (event.target === modalBackdrop) closeModal(null);
+  });
+
+  editor.addEventListener("input", () => {
+    const tab = activeTab();
+    if (!tab) return;
+    tab.content = editor.value;
+    tab.dirty = true;
+    tab.eol = detectEol(tab.content);
+    updateGutter();
+    updatePosition();
+    renderTabs();
+    eol.textContent = tab.eol;
+    saveState.textContent = tab.recovered ? "Recovered • Not saved to disk" : "Modified • Not saved to disk";
+    saveState.className = "status-dirty";
+    schedulePersist();
+  });
+
+  editor.addEventListener("scroll", () => {
+    gutter.scrollTop = editor.scrollTop;
+  });
+  editor.addEventListener("click", updatePosition);
+  editor.addEventListener("keyup", updatePosition);
+  editor.addEventListener("select", updatePosition);
+
+  window.addEventListener("keydown", event => {
+    const key = event.key.toLowerCase();
+    if (event.ctrlKey && !event.shiftKey && key === "n") {
+      event.preventDefault();
+      newDocument();
+    } else if (event.ctrlKey && !event.shiftKey && key === "o") {
+      event.preventDefault();
+      openFile();
+    } else if (event.ctrlKey && !event.shiftKey && key === "s") {
+      event.preventDefault();
+      saveTab();
+    } else if (event.ctrlKey && event.shiftKey && key === "s") {
+      event.preventDefault();
+      saveAsTab();
+    } else if (event.ctrlKey && !event.shiftKey && key === "f") {
+      event.preventDefault();
+      openFind();
+    } else if (event.key === "Escape" && !findbar.hidden) {
+      event.preventDefault();
+      findbar.hidden = true;
+      editor.focus();
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistNow();
+  });
+  window.addEventListener("blur", () => persistNow());
+  window.addEventListener("pagehide", () => persistNow());
+
+  restoreSession();
+})();
+</script>
+</body>
+</html>
