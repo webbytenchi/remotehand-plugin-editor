@@ -17,7 +17,12 @@ button:disabled{opacity:.45;cursor:default}
 .toolbar{height:45px;display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);flex:0 0 auto}
 .toolbar .spacer{flex:1}
 .tool{height:30px}
-.tabs{height:38px;display:flex;align-items:end;gap:2px;padding:5px 8px 0;border-bottom:1px solid var(--remotehand-border,#2e3743);overflow-x:auto;overflow-y:hidden;flex:0 0 auto;background:var(--remotehand-surface,#151b22)}
+.tabs-shell{height:38px;display:grid;grid-template-columns:28px minmax(0,1fr) 28px;border-bottom:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#151b22);flex:0 0 auto}
+.tab-scroll{border:0;border-radius:0;padding:0;background:transparent;color:var(--remotehand-muted-text,#9aa8b8);font-size:16px}
+.tab-scroll:hover:not(:disabled){background:var(--remotehand-button-hover,#2a3542);color:var(--remotehand-text,#eef3f8)}
+.tab-scroll:disabled{opacity:.28}
+.tabs{height:37px;display:flex;align-items:end;gap:2px;padding:5px 4px 0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;scroll-behavior:smooth}
+.tabs::-webkit-scrollbar{display:none}
 .tab{display:flex;align-items:center;gap:6px;max-width:220px;height:32px;padding:0 8px 0 10px;border:1px solid transparent;border-bottom:0;border-radius:7px 7px 0 0;color:var(--remotehand-muted-text,#9aa8b8);white-space:nowrap;cursor:pointer}
 .tab.active{background:var(--remotehand-background,#11151a);border-color:var(--remotehand-border,#2e3743);color:var(--remotehand-text,#eef3f8)}
 .tab.dragging{opacity:.45}
@@ -41,13 +46,13 @@ button:disabled{opacity:.45;cursor:default}
 .editor{resize:none;outline:0;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--remotehand-text,#fff);z-index:1}
 .editor::selection{background:rgba(102,153,204,.35)}
 .syn-comment{color:var(--remotehand-muted-text,#718096);font-style:italic}
-.syn-string{color:#a8d080}
-.syn-number{color:#d5a76f}
-.syn-keyword{color:#7fb4e8}
-.syn-literal{color:#c99be8}
-.syn-tag{color:#7fb4e8}
-.syn-heading{color:#7fb4e8;font-weight:600}
-.syn-property{color:#9ccfd8}
+.syn-string{color:var(--remotehand-success-text,var(--remotehand-text,#a8d080))}
+.syn-number{color:var(--remotehand-warning-text,var(--remotehand-text,#d5a76f))}
+.syn-keyword{color:var(--remotehand-accent-text,var(--remotehand-text,#7fb4e8))}
+.syn-literal{color:var(--remotehand-accent-text,var(--remotehand-text,#c99be8))}
+.syn-tag{color:var(--remotehand-accent-text,var(--remotehand-text,#7fb4e8))}
+.syn-heading{color:var(--remotehand-accent-text,var(--remotehand-text,#7fb4e8));font-weight:600}
+.syn-property{color:var(--remotehand-accent-text,var(--remotehand-text,#9ccfd8))}
 .findbar{position:absolute;top:8px;right:18px;display:flex;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
 .findbar input{width:220px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:6px 8px;outline:0}
 .statusbar{height:27px;display:flex;align-items:center;gap:14px;padding:0 10px;border-top:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;flex:0 0 auto}
@@ -74,7 +79,11 @@ button:disabled{opacity:.45;cursor:default}
     <button id="findBtn" class="tool" type="button" title="Find (Ctrl+F)">Find</button>
   </div>
 
-  <div id="tabs" class="tabs"></div>
+  <div class="tabs-shell">
+    <button id="tabsPrev" class="tab-scroll" type="button" title="Scroll tabs left" aria-label="Scroll tabs left">‹</button>
+    <div id="tabs" class="tabs"></div>
+    <button id="tabsNext" class="tab-scroll" type="button" title="Scroll tabs right" aria-label="Scroll tabs right">›</button>
+  </div>
 
   <div id="recovery" class="recovery" hidden>
     <strong>Recovered unsaved changes</strong>
@@ -123,6 +132,8 @@ button:disabled{opacity:.45;cursor:default}
   const request = (method, params = null) => window.remotehand.request(method, params);
 
   const tabsHost = document.getElementById("tabs");
+  const tabsPrev = document.getElementById("tabsPrev");
+  const tabsNext = document.getElementById("tabsNext");
   const editor = document.getElementById("editor");
   const syntaxLayer = document.getElementById("syntaxLayer");
   const syntaxCode = document.getElementById("syntaxCode");
@@ -417,6 +428,18 @@ button:disabled{opacity:.45;cursor:default}
     return true;
   }
 
+  function updateTabScrollButtons() {
+    const max = Math.max(0, tabsHost.scrollWidth - tabsHost.clientWidth);
+    tabsPrev.disabled = tabsHost.scrollLeft <= 1;
+    tabsNext.disabled = tabsHost.scrollLeft >= max - 1;
+  }
+
+  function ensureActiveTabVisible() {
+    const active = tabsHost.querySelector('.tab[data-tab-id="' + CSS.escape(String(activeId || "")) + '"]');
+    if (active) active.scrollIntoView({ block:"nearest", inline:"nearest" });
+    requestAnimationFrame(updateTabScrollButtons);
+  }
+
   function renderTabs() {
     tabsHost.replaceChildren();
     for (const tab of tabs) {
@@ -520,7 +543,17 @@ button:disabled{opacity:.45;cursor:default}
       item.appendChild(close);
       tabsHost.appendChild(item);
     }
+    requestAnimationFrame(ensureActiveTabVisible);
   }
+
+  tabsPrev.addEventListener("click", () => {
+    tabsHost.scrollBy({ left: -Math.max(140, Math.round(tabsHost.clientWidth * .55)), behavior:"smooth" });
+  });
+  tabsNext.addEventListener("click", () => {
+    tabsHost.scrollBy({ left: Math.max(140, Math.round(tabsHost.clientWidth * .55)), behavior:"smooth" });
+  });
+  tabsHost.addEventListener("scroll", updateTabScrollButtons, { passive:true });
+  window.addEventListener("resize", updateTabScrollButtons);
 
   tabsHost.addEventListener("dragover", event => {
     if (!draggedTabId || event.target.closest(".tab")) return;
