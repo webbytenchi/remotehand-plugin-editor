@@ -53,7 +53,7 @@ button:disabled{opacity:.45;cursor:default}
 .syn-tag{color:var(--remotehand-accent-text,var(--remotehand-text,#7fb4e8))}
 .syn-heading{color:var(--remotehand-accent-text,var(--remotehand-text,#7fb4e8));font-weight:600}
 .syn-property{color:var(--remotehand-accent-text,var(--remotehand-text,#9ccfd8))}
-.findbar{position:absolute;top:8px;right:18px;display:flex;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
+.findbar{position:absolute;top:8px;right:18px;z-index:5;display:flex;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
 .findbar input{width:220px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:6px 8px;outline:0}
 .find-count{min-width:48px;align-self:center;text-align:center;color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;white-space:nowrap}
 .statusbar{height:27px;display:flex;align-items:center;gap:14px;padding:0 10px;border-top:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);color:var(--remotehand-muted-text,#9aa8b8);font-size:12px;flex:0 0 auto}
@@ -784,6 +784,11 @@ button:disabled{opacity:.45;cursor:default}
     return matches;
   }
 
+  function closeFind(focusEditor = true) {
+    findbar.hidden = true;
+    if (focusEditor) editor.focus();
+  }
+
   function openFind() {
     findbar.hidden = false;
     const selected = editor.value.slice(editor.selectionStart, editor.selectionEnd);
@@ -820,11 +825,12 @@ button:disabled{opacity:.45;cursor:default}
       if (target === undefined) target = matches[matches.length - 1];
     }
 
-    editor.focus();
+    editor.focus({ preventScroll:true });
     editor.setSelectionRange(target, target + query.length);
     const current = matches.indexOf(target);
     findCount.textContent = (current + 1) + " of " + matches.length;
     updatePosition();
+    findInput.focus({ preventScroll:true });
   }
 
   function findNext() { findMove(1); }
@@ -870,7 +876,7 @@ button:disabled{opacity:.45;cursor:default}
   document.getElementById("findBtn").addEventListener("click", openFind);
   document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
-  document.getElementById("findClose").addEventListener("click", () => { findbar.hidden = true; editor.focus(); });
+  document.getElementById("findClose").addEventListener("click", () => closeFind(true));
   document.getElementById("recoverySave").addEventListener("click", () => saveTab());
   document.getElementById("recoveryDiscard").addEventListener("click", () => discardRecovered(activeTab()));
 
@@ -882,9 +888,15 @@ button:disabled{opacity:.45;cursor:default}
       else findNext();
     } else if (event.key === "Escape") {
       event.preventDefault();
-      findbar.hidden = true;
-      editor.focus();
+      closeFind(true);
     }
+  });
+
+  document.addEventListener("mousedown", event => {
+    if (findbar.hidden) return;
+    const target = event.target;
+    if (findbar.contains(target) || document.getElementById("findBtn").contains(target)) return;
+    closeFind(false);
   });
 
   modalBackdrop.addEventListener("mousedown", event => {
@@ -1010,8 +1022,7 @@ button:disabled{opacity:.45;cursor:default}
       openFind();
     } else if (event.key === "Escape" && !findbar.hidden) {
       event.preventDefault();
-      findbar.hidden = true;
-      editor.focus();
+      closeFind(true);
     }
   });
 
