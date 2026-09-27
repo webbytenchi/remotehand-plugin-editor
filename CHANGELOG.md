@@ -2,6 +2,17 @@
 
 All notable changes to RemoteHand Editor are documented here.
 
+## [0.2.1] - 2026-09-28
+
+### Fixed
+
+- corrected the executable Plugin API handshake version so it matches the installed v0.2.1 manifest
+- made the UTF-8-only error message version-neutral
+
+### Verification
+
+- added a regression test that checks the runtime plugin version matches `plugin.json`
+
 ## [0.2.0] - 2026-09-28
 
 ### Added

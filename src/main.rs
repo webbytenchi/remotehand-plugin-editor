@@ -5,7 +5,7 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::path::Path;
 
 const PLUGIN_ID: &str = "remotehand.editor";
-const PLUGIN_VERSION: &str = "0.1.0";
+const PLUGIN_VERSION: &str = "0.2.1";
 const API_VERSION: u32 = 1;
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
@@ -191,7 +191,7 @@ fn read_text_file(path: &Path) -> Result<Value, String> {
         return Err("binary files are not supported".to_string());
     }
     let content = String::from_utf8(bytes)
-        .map_err(|_| "v0.1.0 currently supports UTF-8 text files only".to_string())?;
+        .map_err(|_| "Editor currently supports UTF-8 text files only".to_string())?;
 
     Ok(json!({
         "path": path_text(path),
@@ -419,6 +419,14 @@ mod tests {
         path.push(format!("remotehand-editor-test-{name}-{}", std::process::id()));
         fs::write(&path, bytes).expect("write temp file");
         path
+    }
+
+    #[test]
+    fn runtime_version_matches_manifest() {
+        let manifest: serde_json::Value =
+            serde_json::from_str(include_str!("../plugin.json")).expect("parse plugin.json");
+
+        assert_eq!(manifest["version"], PLUGIN_VERSION);
     }
 
     #[test]
