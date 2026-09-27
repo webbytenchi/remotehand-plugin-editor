@@ -33,6 +33,9 @@ New-Item -ItemType Directory -Force -Path $packageUiDir | Out-Null
 New-Item -ItemType Directory -Force -Path $packageAssetsDir | Out-Null
 
 Copy-Item -Force (Join-Path $repo "plugin.json") (Join-Path $packageDir "plugin.json")
+Copy-Item -Force (Join-Path $repo "README.md") (Join-Path $packageDir "README.md")
+Copy-Item -Force (Join-Path $repo "CHANGELOG.md") (Join-Path $packageDir "CHANGELOG.md")
+Copy-Item -Force (Join-Path $repo "LICENSE") (Join-Path $packageDir "LICENSE")
 Copy-Item -Force (Join-Path $repo "ui\index.html") (Join-Path $packageUiDir "index.html")
 Copy-Item -Force (Join-Path $repo "assets\*") $packageAssetsDir
 Copy-Item -Force $sourceExe (Join-Path $packageBinDir "remotehand-editor.exe")
