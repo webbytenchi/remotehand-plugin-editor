@@ -1,12 +1,12 @@
 # RemoteHand Editor
 
-Status: **Planned / parked**
+Status: **v0.1.0 foundation in development**
 
 RemoteHand Editor is intended to be a lightweight, programmer-focused text and code editor integrated into RemoteHand.
 
 The design direction is inspired by the speed, practicality, and familiar workflow of Notepad++, while deliberately avoiding the scope of a full IDE.
 
-No implementation work has started yet. These notes capture the current agreed direction only and are not frozen scope.
+Implementation has started on a temporary v0.1.0 foundation branch. The first slice focuses on document/session recovery, real-file open/save, tabs, line numbers, status information, and find before adding a dedicated syntax-highlighting engine.
 
 ## Product identity
 
