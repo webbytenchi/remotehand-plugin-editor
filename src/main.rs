@@ -1,4 +1,3 @@
-use rfd::FileDialog;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
@@ -203,25 +202,6 @@ fn read_text_file(path: &Path) -> Result<Value, String> {
     }))
 }
 
-fn open_text_file() -> Result<Value, String> {
-    let picked = FileDialog::new()
-        .add_filter(
-            "Text and code",
-            &[
-                "txt", "md", "json", "yaml", "yml", "toml", "ini", "xml", "html",
-                "htm", "css", "js", "ts", "jsx", "tsx", "py", "rs", "go", "c", "h",
-                "cpp", "hpp", "cs", "java", "sh", "ps1", "log",
-            ],
-        )
-        .add_filter("All files", &["*"])
-        .pick_file();
-
-    match picked {
-        Some(path) => read_text_file(&path),
-        None => Ok(json!({ "opened": false })),
-    }
-}
-
 fn write_text_file(path: &Path, content: &str) -> Result<Value, String> {
     if path.as_os_str().is_empty() {
         return Err("file path is required".to_string());
@@ -279,7 +259,31 @@ fn dispatch(
             )?;
             Ok(json!({ "stored": true }))
         }
-        "file.open" => open_text_file(),
+        "file.open" => {
+            let result = host_call(
+                "file.open",
+                json!({
+                    "filters": [
+                        {
+                            "name": "Text and code",
+                            "extensions": [
+                                "txt", "md", "json", "yaml", "yml", "toml", "ini", "xml",
+                                "html", "htm", "css", "js", "ts", "jsx", "tsx", "py", "rs",
+                                "go", "c", "h", "cpp", "hpp", "cs", "java", "sh", "ps1", "log"
+                            ]
+                        }
+                    ]
+                }),
+            )?;
+            if result.get("opened") == Some(&Value::Bool(false)) {
+                return Ok(json!({ "opened": false }));
+            }
+            let path = result
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "host file.open did not return a path".to_string())?;
+            read_text_file(Path::new(path))
+        },
         "file.read" => {
             #[derive(Deserialize)]
             struct Params {
