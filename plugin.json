@@ -14,8 +14,7 @@
     }
   },
   "permissions": [
-    "storage.plugin",
-    "files.save"
+    "storage.plugin"
   ],
   "contributes": {
     "sidebar": [
