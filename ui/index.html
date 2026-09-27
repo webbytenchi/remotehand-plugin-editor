@@ -20,6 +20,9 @@ button:disabled{opacity:.45;cursor:default}
 .tabs{height:38px;display:flex;align-items:end;gap:2px;padding:5px 8px 0;border-bottom:1px solid var(--remotehand-border,#2e3743);overflow-x:auto;overflow-y:hidden;flex:0 0 auto;background:var(--remotehand-surface,#151b22)}
 .tab{display:flex;align-items:center;gap:6px;max-width:220px;height:32px;padding:0 8px 0 10px;border:1px solid transparent;border-bottom:0;border-radius:7px 7px 0 0;color:var(--remotehand-muted-text,#9aa8b8);white-space:nowrap;cursor:pointer}
 .tab.active{background:var(--remotehand-background,#11151a);border-color:var(--remotehand-border,#2e3743);color:var(--remotehand-text,#eef3f8)}
+.tab.dragging{opacity:.45}
+.tab.drop-before{box-shadow:inset 2px 0 0 var(--remotehand-accent-border,#6f9bc8)}
+.tab.drop-after{box-shadow:inset -2px 0 0 var(--remotehand-accent-border,#6f9bc8)}
 .tab-name{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .dirty{font-size:16px;line-height:1}
 .tab-close{border:0;background:transparent;padding:1px 4px;border-radius:4px;color:inherit}
@@ -128,6 +131,7 @@ button:disabled{opacity:.45;cursor:default}
   let persistInFlight = Promise.resolve();
   let modalResolve = null;
   let nativeDialogPending = false;
+  let draggedTabId = null;
 
   const basename = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || String(path || "");
 
@@ -275,18 +279,93 @@ button:disabled{opacity:.45;cursor:default}
     position.textContent = `Ln ${line}, Col ${col}`;
   }
 
+  function clearTabDropIndicators() {
+    for (const element of tabsHost.querySelectorAll(".tab")) {
+      element.classList.remove("drop-before", "drop-after", "dragging");
+    }
+  }
+
+  function reorderTab(draggedId, targetId, placeAfter) {
+    const fromIndex = tabs.findIndex(tab => tab.id === draggedId);
+    const targetIndex = tabs.findIndex(tab => tab.id === targetId);
+    if (fromIndex < 0 || targetIndex < 0 || fromIndex === targetIndex) return false;
+
+    const [moved] = tabs.splice(fromIndex, 1);
+    let insertIndex = tabs.findIndex(tab => tab.id === targetId);
+    if (insertIndex < 0) {
+      tabs.push(moved);
+      return true;
+    }
+    if (placeAfter) insertIndex += 1;
+    tabs.splice(insertIndex, 0, moved);
+    return true;
+  }
+
   function renderTabs() {
     tabsHost.replaceChildren();
     for (const tab of tabs) {
       const item = document.createElement("div");
       item.className = "tab" + (tab.id === activeId ? " active" : "");
       item.title = tab.path || tab.name;
-      item.addEventListener("mousedown", event => {
-        if (event.button !== 0) return;
+      item.draggable = true;
+      item.dataset.tabId = tab.id;
+
+      item.addEventListener("click", event => {
+        if (event.target.closest(".tab-close")) return;
+        if (activeId === tab.id) {
+          editor.focus();
+          return;
+        }
         activeId = tab.id;
         render();
         requestAnimationFrame(() => editor.focus());
         schedulePersist();
+      });
+
+      item.addEventListener("dragstart", event => {
+        if (event.target.closest(".tab-close")) {
+          event.preventDefault();
+          return;
+        }
+        draggedTabId = tab.id;
+        item.classList.add("dragging");
+        if (event.dataTransfer) {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("text/plain", tab.id);
+        }
+      });
+
+      item.addEventListener("dragover", event => {
+        if (!draggedTabId || draggedTabId === tab.id) return;
+        event.preventDefault();
+        if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+        const bounds = item.getBoundingClientRect();
+        const placeAfter = event.clientX >= bounds.left + bounds.width / 2;
+        item.classList.toggle("drop-before", !placeAfter);
+        item.classList.toggle("drop-after", placeAfter);
+      });
+
+      item.addEventListener("dragleave", () => {
+        item.classList.remove("drop-before", "drop-after");
+      });
+
+      item.addEventListener("drop", event => {
+        if (!draggedTabId || draggedTabId === tab.id) return;
+        event.preventDefault();
+        const bounds = item.getBoundingClientRect();
+        const placeAfter = event.clientX >= bounds.left + bounds.width / 2;
+        const changed = reorderTab(draggedTabId, tab.id, placeAfter);
+        draggedTabId = null;
+        clearTabDropIndicators();
+        if (changed) {
+          renderTabs();
+          persistNow();
+        }
+      });
+
+      item.addEventListener("dragend", () => {
+        draggedTabId = null;
+        clearTabDropIndicators();
       });
 
       const name = document.createElement("span");
@@ -326,6 +405,26 @@ button:disabled{opacity:.45;cursor:default}
       tabsHost.appendChild(item);
     }
   }
+
+  tabsHost.addEventListener("dragover", event => {
+    if (!draggedTabId || event.target.closest(".tab")) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+  });
+
+  tabsHost.addEventListener("drop", event => {
+    if (!draggedTabId || event.target.closest(".tab")) return;
+    event.preventDefault();
+    const fromIndex = tabs.findIndex(tab => tab.id === draggedTabId);
+    if (fromIndex >= 0 && fromIndex !== tabs.length - 1) {
+      const [moved] = tabs.splice(fromIndex, 1);
+      tabs.push(moved);
+      renderTabs();
+      persistNow();
+    }
+    draggedTabId = null;
+    clearTabDropIndicators();
+  });
 
   function render() {
     const tab = activeTab();
