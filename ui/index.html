@@ -40,10 +40,12 @@ button:disabled{opacity:.45;cursor:default}
 .editor-wrap{min-width:0;min-height:0;flex:1;display:grid;grid-template-columns:auto minmax(0,1fr);background:var(--remotehand-terminal-background,var(--remotehand-background,#11151a))}
 .gutter{min-width:48px;padding:10px 9px 40px 6px;text-align:right;white-space:pre;overflow:hidden;border-right:1px solid var(--remotehand-border,#2b3540);background:var(--remotehand-terminal-background,var(--remotehand-background,#11151a));color:var(--remotehand-muted-text,#718096);font-family:var(--remotehand-terminal-font-family,Consolas,"Cascadia Code","Courier New",monospace);font-size:var(--remotehand-terminal-font-size,13px);line-height:1.55;user-select:none}
 .editor-stack{position:relative;min-width:0;min-height:0;overflow:hidden}
-.syntax-layer,.editor{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;padding:10px 12px 40px;font-family:var(--remotehand-terminal-font-family,Consolas,"Cascadia Code","Courier New",monospace);font-size:var(--remotehand-terminal-font-size,13px);line-height:1.55;tab-size:4;white-space:pre;overflow:auto}
+.syntax-layer,.find-highlight-layer,.editor{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;padding:10px 12px 40px;font-family:var(--remotehand-terminal-font-family,Consolas,"Cascadia Code","Courier New",monospace);font-size:var(--remotehand-terminal-font-size,13px);line-height:1.55;tab-size:4;white-space:pre;overflow:auto}
 .syntax-layer{pointer-events:none;background:transparent;color:var(--remotehand-terminal-foreground,var(--remotehand-text,#e6edf3));overflow:hidden}
-.syntax-layer code{font:inherit;white-space:pre}
-.editor{resize:none;outline:0;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--remotehand-terminal-foreground,var(--remotehand-text,#fff));z-index:1}
+.syntax-layer code,.find-highlight-layer code{font:inherit;white-space:pre}
+.find-highlight-layer{pointer-events:none;z-index:1;color:transparent;overflow:hidden;background:transparent}
+.find-current{color:transparent;background:var(--remotehand-accent-surface-hover,var(--remotehand-accent-surface,rgba(112,167,232,.28)));outline:1px solid var(--remotehand-accent-border,#5d7fa4);border-radius:2px}
+.editor{resize:none;outline:0;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--remotehand-terminal-foreground,var(--remotehand-text,#fff));z-index:2}
 .editor::selection{background:rgba(102,153,204,.35)}
 .syn-comment{color:var(--remotehand-muted-text,#718096);font-style:italic}
 .syn-string{color:var(--remotehand-success-text,var(--remotehand-text,#a8d080))}
@@ -99,6 +101,7 @@ button:disabled{opacity:.45;cursor:default}
       <div id="gutter" class="gutter">1</div>
       <div class="editor-stack">
         <pre id="syntaxLayer" class="syntax-layer" aria-hidden="true"><code id="syntaxCode"></code></pre>
+        <pre id="findHighlightLayer" class="find-highlight-layer" aria-hidden="true"><code id="findHighlightCode"></code></pre>
         <textarea id="editor" class="editor" autocomplete="off" autocapitalize="off" spellcheck="false" wrap="off"></textarea>
       </div>
     </div>
@@ -140,6 +143,8 @@ button:disabled{opacity:.45;cursor:default}
   const editor = document.getElementById("editor");
   const syntaxLayer = document.getElementById("syntaxLayer");
   const syntaxCode = document.getElementById("syntaxCode");
+  const findHighlightLayer = document.getElementById("findHighlightLayer");
+  const findHighlightCode = document.getElementById("findHighlightCode");
   const gutter = document.getElementById("gutter");
   const editorWrap = document.getElementById("editorWrap");
   const empty = document.getElementById("empty");
@@ -757,6 +762,44 @@ button:disabled{opacity:.45;cursor:default}
     if (tabs.length === 0) newDocument();
   }
 
+  function clearFindHighlight() {
+    findHighlightCode.textContent = "";
+  }
+
+  function renderFindHighlight(start, length) {
+    const tab = activeTab();
+    if (!tab || start < 0 || length <= 0) {
+      clearFindHighlight();
+      return;
+    }
+    const before = tab.content.slice(0, start);
+    const match = tab.content.slice(start, start + length);
+    const after = tab.content.slice(start + length);
+    findHighlightCode.innerHTML =
+      escapeHtml(before) +
+      '<span class="find-current">' + escapeHtml(match) + '</span>' +
+      escapeHtml(after);
+    findHighlightLayer.scrollTop = editor.scrollTop;
+    findHighlightLayer.scrollLeft = editor.scrollLeft;
+  }
+
+  function scrollMatchIntoView(start) {
+    const tab = activeTab();
+    if (!tab) return;
+    const line = tab.content.slice(0, start).split("\n").length - 1;
+    const computed = getComputedStyle(editor);
+    const lineHeight = parseFloat(computed.lineHeight) || 20;
+    const topPadding = parseFloat(computed.paddingTop) || 0;
+    const matchTop = topPadding + line * lineHeight;
+    const visibleTop = editor.scrollTop;
+    const visibleBottom = visibleTop + editor.clientHeight - lineHeight * 2;
+    if (matchTop < visibleTop || matchTop > visibleBottom) {
+      editor.scrollTop = Math.max(0, matchTop - editor.clientHeight * .4);
+    }
+    syntaxLayer.scrollTop = editor.scrollTop;
+    findHighlightLayer.scrollTop = editor.scrollTop;
+  }
+
   function findMatches(query) {
     const tab = activeTab();
     if (!tab || !query) return [];
@@ -775,6 +818,7 @@ button:disabled{opacity:.45;cursor:default}
     const matches = findMatches(query);
     if (!query || matches.length === 0) {
       findCount.textContent = "0 of 0";
+      clearFindHighlight();
       return matches;
     }
     const selectionStart = editor.selectionStart;
@@ -786,6 +830,7 @@ button:disabled{opacity:.45;cursor:default}
 
   function closeFind(focusEditor = true) {
     findbar.hidden = true;
+    clearFindHighlight();
     if (focusEditor) editor.focus();
   }
 
@@ -829,6 +874,8 @@ button:disabled{opacity:.45;cursor:default}
     editor.setSelectionRange(target, target + query.length);
     const current = matches.indexOf(target);
     findCount.textContent = (current + 1) + " of " + matches.length;
+    renderFindHighlight(target, query.length);
+    scrollMatchIntoView(target);
     updatePosition();
     findInput.focus({ preventScroll:true });
   }
@@ -880,7 +927,10 @@ button:disabled{opacity:.45;cursor:default}
   document.getElementById("recoverySave").addEventListener("click", () => saveTab());
   document.getElementById("recoveryDiscard").addEventListener("click", () => discardRecovered(activeTab()));
 
-  findInput.addEventListener("input", () => updateFindCount());
+  findInput.addEventListener("input", () => {
+    clearFindHighlight();
+    updateFindCount();
+  });
   findInput.addEventListener("keydown", event => {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -976,6 +1026,10 @@ button:disabled{opacity:.45;cursor:default}
     const tab = activeTab();
     if (!tab) return;
     tab.content = editor.value;
+    if (!findbar.hidden) {
+      clearFindHighlight();
+      updateFindCount();
+    }
     tab.dirty = true;
     tab.eol = detectEol(tab.content);
     updateSyntaxHighlight();
@@ -992,6 +1046,8 @@ button:disabled{opacity:.45;cursor:default}
     gutter.scrollTop = editor.scrollTop;
     syntaxLayer.scrollTop = editor.scrollTop;
     syntaxLayer.scrollLeft = editor.scrollLeft;
+    findHighlightLayer.scrollTop = editor.scrollTop;
+    findHighlightLayer.scrollLeft = editor.scrollLeft;
   });
   editor.addEventListener("click", updatePosition);
   editor.addEventListener("keyup", updatePosition);
