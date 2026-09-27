@@ -37,13 +37,13 @@ button:disabled{opacity:.45;cursor:default}
 .recovery span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .recovery .spacer{flex:1}
 .workspace{min-height:0;flex:1;display:flex;position:relative}
-.editor-wrap{min-width:0;min-height:0;flex:1;display:grid;grid-template-columns:auto minmax(0,1fr);background:var(--remotehand-background,#11151a)}
-.gutter{min-width:48px;padding:10px 9px 40px 6px;text-align:right;white-space:pre;overflow:hidden;border-right:1px solid var(--remotehand-border,#2b3540);background:var(--remotehand-surface,#151b22);color:var(--remotehand-muted-text,#718096);font-family:var(--remotehand-terminal-font-family,Consolas,"Cascadia Code","Courier New",monospace);font-size:var(--remotehand-terminal-font-size,13px);line-height:1.55;user-select:none}
+.editor-wrap{min-width:0;min-height:0;flex:1;display:grid;grid-template-columns:auto minmax(0,1fr);background:var(--remotehand-terminal-background,var(--remotehand-background,#11151a))}
+.gutter{min-width:48px;padding:10px 9px 40px 6px;text-align:right;white-space:pre;overflow:hidden;border-right:1px solid var(--remotehand-border,#2b3540);background:var(--remotehand-terminal-background,var(--remotehand-background,#11151a));color:var(--remotehand-muted-text,#718096);font-family:var(--remotehand-terminal-font-family,Consolas,"Cascadia Code","Courier New",monospace);font-size:var(--remotehand-terminal-font-size,13px);line-height:1.55;user-select:none}
 .editor-stack{position:relative;min-width:0;min-height:0;overflow:hidden}
 .syntax-layer,.editor{position:absolute;inset:0;width:100%;height:100%;margin:0;border:0;padding:10px 12px 40px;font-family:var(--remotehand-terminal-font-family,Consolas,"Cascadia Code","Courier New",monospace);font-size:var(--remotehand-terminal-font-size,13px);line-height:1.55;tab-size:4;white-space:pre;overflow:auto}
-.syntax-layer{pointer-events:none;background:transparent;color:var(--remotehand-text,#e6edf3);overflow:hidden}
+.syntax-layer{pointer-events:none;background:transparent;color:var(--remotehand-terminal-foreground,var(--remotehand-text,#e6edf3));overflow:hidden}
 .syntax-layer code{font:inherit;white-space:pre}
-.editor{resize:none;outline:0;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--remotehand-text,#fff);z-index:1}
+.editor{resize:none;outline:0;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--remotehand-terminal-foreground,var(--remotehand-text,#fff));z-index:1}
 .editor::selection{background:rgba(102,153,204,.35)}
 .syn-comment{color:var(--remotehand-muted-text,#718096);font-style:italic}
 .syn-string{color:var(--remotehand-success-text,var(--remotehand-text,#a8d080))}
