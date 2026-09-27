@@ -360,6 +360,8 @@ button:disabled{opacity:.45;cursor:default}
   }
 
   async function openFile() {
+    if (nativeDialogPending) return;
+    nativeDialogPending = true;
     try {
       const result = await request("file.open");
       if (!result || result.opened === false || !result.path) return;
@@ -383,10 +385,12 @@ button:disabled{opacity:.45;cursor:default}
       tabs.push(tab);
       activeId = tab.id;
       render();
-      await persistNow();
       requestAnimationFrame(() => editor.focus());
     } catch (error) {
       await messageModal("Could not open file", String(error));
+    } finally {
+      nativeDialogPending = false;
+      await persistNow();
     }
   }
 
