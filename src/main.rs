@@ -411,6 +411,7 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     fn temp_file(name: &str, bytes: &[u8]) -> PathBuf {
         let mut path = std::env::temp_dir();
