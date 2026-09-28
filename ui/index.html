@@ -201,6 +201,10 @@ button:disabled{opacity:.45;cursor:default}
   const undoHistoryByTab = new Map();
   const redoHistoryByTab = new Map();
   let applyingHistory = false;
+  const fileHandleByTab = new Map();
+  const HANDLE_DB_NAME = "remotehand-editor";
+  const HANDLE_STORE_NAME = "file-handles";
+  const MAX_DROPPED_FILE_BYTES = 8 * 1024 * 1024;
 
   const basename = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || String(path || "");
 
@@ -231,6 +235,114 @@ button:disabled{opacity:.45;cursor:default}
     } catch {
       return "";
     }
+  }
+
+  function openHandleDatabase() {
+    return new Promise((resolve, reject) => {
+      if (!("indexedDB" in window)) {
+        reject(new Error("IndexedDB is unavailable"));
+        return;
+      }
+      const request = indexedDB.open(HANDLE_DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const db = request.result;
+        if (!db.objectStoreNames.contains(HANDLE_STORE_NAME)) {
+          db.createObjectStore(HANDLE_STORE_NAME);
+        }
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error("Could not open Editor handle storage"));
+    });
+  }
+
+  async function storeFileHandle(tabId, handle) {
+    try {
+      const db = await openHandleDatabase();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(HANDLE_STORE_NAME, "readwrite");
+        tx.objectStore(HANDLE_STORE_NAME).put(handle, tabId);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error("Could not store file handle"));
+      });
+      db.close();
+    } catch (error) {
+      console.warn("Editor could not persist dropped file handle:", error);
+    }
+  }
+
+  async function loadFileHandle(tabId) {
+    try {
+      const db = await openHandleDatabase();
+      const handle = await new Promise((resolve, reject) => {
+        const tx = db.transaction(HANDLE_STORE_NAME, "readonly");
+        const request = tx.objectStore(HANDLE_STORE_NAME).get(tabId);
+        request.onsuccess = () => resolve(request.result || null);
+        request.onerror = () => reject(request.error || new Error("Could not load file handle"));
+      });
+      db.close();
+      return handle;
+    } catch {
+      return null;
+    }
+  }
+
+  async function deleteFileHandle(tabId) {
+    try {
+      const db = await openHandleDatabase();
+      await new Promise((resolve, reject) => {
+        const tx = db.transaction(HANDLE_STORE_NAME, "readwrite");
+        tx.objectStore(HANDLE_STORE_NAME).delete(tabId);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error || new Error("Could not delete file handle"));
+      });
+      db.close();
+    } catch {}
+  }
+
+  function isSupportedDroppedName(name) {
+    const value = String(name || "").toLowerCase();
+    const base = value.split(/[\\/]/).pop() || value;
+    const named = new Set(["dockerfile", "makefile", "license", "readme"]);
+    if (named.has(base)) return true;
+    const dot = base.lastIndexOf(".");
+    if (dot < 0) return true;
+    const extension = base.slice(dot + 1);
+    return new Set([
+      "txt","md","markdown","log","json","jsonc","yaml","yml","toml","ini","cfg","conf",
+      "xml","html","htm","css","scss","sass","less","js","jsx","mjs","cjs","ts","tsx",
+      "py","rs","go","c","h","cpp","hpp","cc","cxx","cs","java","kt","kts","sh","bash",
+      "zsh","fish","ps1","bat","cmd","sql","csv","tsv","env","gitignore","gitattributes",
+      "editorconfig"
+    ]).has(extension);
+  }
+
+  async function resultFromDroppedHandle(handle) {
+    if (!handle || handle.kind !== "file") {
+      throw new Error("selected path is not a regular file");
+    }
+    if (!isSupportedDroppedName(handle.name)) {
+      throw new Error("selected file is not a supported text/code type");
+    }
+    const file = await handle.getFile();
+    if (file.size > MAX_DROPPED_FILE_BYTES) {
+      throw new Error("file exceeds the Editor 8 MiB limit");
+    }
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.subarray(0, Math.min(bytes.length, 8192)).some(byte => byte === 0)) {
+      throw new Error("binary files are not supported");
+    }
+    let content;
+    try {
+      content = new TextDecoder("utf-8", { fatal:true }).decode(bytes);
+    } catch {
+      throw new Error("Editor currently supports UTF-8 text files only");
+    }
+    return {
+      name: file.name || handle.name || "Dropped file",
+      content,
+      encoding: "UTF-8",
+      eol: detectEol(content)
+    };
   }
 
   function normalizeDroppedPath(value) {
@@ -434,6 +546,7 @@ button:disabled{opacity:.45;cursor:default}
         id: tab.id,
         name: tab.name,
         path: tab.path,
+        handleBacked: Boolean(tab.handleBacked),
         content: tab.content,
         dirty: Boolean(tab.dirty),
         encoding: tab.encoding || "UTF-8",
@@ -478,15 +591,38 @@ button:disabled{opacity:.45;cursor:default}
       id: typeof raw.id === "string" ? raw.id : makeId(),
       name: typeof raw.name === "string" ? raw.name : "Untitled",
       path: typeof raw.path === "string" && raw.path ? raw.path : null,
+      handleBacked: Boolean(raw.handleBacked),
       content: typeof raw.content === "string" ? raw.content : "",
       dirty: Boolean(raw.dirty),
-      recovered: Boolean(raw.path && raw.dirty),
+      recovered: Boolean((raw.path || raw.handleBacked) && raw.dirty),
       encoding: "UTF-8",
       eol: raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || "")),
       cursor: Math.max(0, Number(raw.cursor) || 0)
     }));
 
     for (const tab of tabs) {
+      if (tab.handleBacked) {
+        const handle = await loadFileHandle(tab.id);
+        if (handle && handle.kind === "file") {
+          fileHandleByTab.set(tab.id, handle);
+          if (!tab.dirty) {
+            try {
+              const fresh = await resultFromDroppedHandle(handle);
+              tab.content = fresh.content;
+              tab.name = fresh.name || tab.name;
+              tab.eol = fresh.eol || detectEol(tab.content);
+            } catch (error) {
+              tab.dirty = true;
+              tab.recovered = true;
+              console.warn("Editor could not refresh remembered dropped file:", tab.name, error);
+            }
+          }
+        } else {
+          tab.dirty = true;
+          tab.recovered = true;
+        }
+        continue;
+      }
       if (!tab.path || tab.dirty) continue;
       try {
         const fresh = await request("file.read", { path: tab.path });
@@ -701,25 +837,37 @@ button:disabled{opacity:.45;cursor:default}
 
     event.preventDefault();
     event.stopPropagation();
+
+    const handlePromises = Array.from(event.dataTransfer.items || [])
+      .filter(item => item.kind === "file" && typeof item.getAsFileSystemHandle === "function")
+      .map(item => item.getAsFileSystemHandle());
+
     const fileCount = event.dataTransfer.files ? event.dataTransfer.files.length : 0;
     const paths = droppedPaths(event.dataTransfer);
     clearFileDropState();
 
-    if (fileCount > 1 || paths.length > 1) {
+    if (fileCount > 1 || paths.length > 1 || handlePromises.length > 1) {
       void messageModal("Could not open files", "Drop one file at a time onto the Editor tab area.");
       return;
     }
-    if (paths.length !== 1) {
-      const explorerLikeDrop = fileCount === 1 || types.includes("Files");
-      void messageModal(
-        "Could not open dropped file",
-        explorerLikeDrop
-          ? "Windows Explorer did not expose the file's local path to this Editor panel. Dragging from RemoteHand File Manager is supported."
-          : "The drop did not expose a local file path that Editor can open."
-      );
+
+    if (paths.length === 1) {
+      void openPath(paths[0]);
       return;
     }
-    void openPath(paths[0]);
+
+    if (handlePromises.length === 1) {
+      void handlePromises[0].then(handle => {
+        if (!handle) throw new Error("Windows Explorer did not provide a usable file handle.");
+        return openDroppedHandle(handle);
+      }).catch(error => messageModal("Could not open dropped file", String(error)));
+      return;
+    }
+
+    void messageModal(
+      "Could not open dropped file",
+      "The drop did not expose a local file path or file handle that Editor can open."
+    );
   });
 
   tabsHost.addEventListener("dragover", event => {
@@ -774,6 +922,45 @@ button:disabled{opacity:.45;cursor:default}
 
     updateGutter();
     updatePosition();
+  }
+
+  function activateDroppedHandle(handle, result) {
+    const tab = {
+      id: makeId(),
+      name: result.name || handle.name || "Dropped file",
+      path: null,
+      handleBacked: true,
+      content: result.content || "",
+      dirty: false,
+      recovered: false,
+      encoding: result.encoding || "UTF-8",
+      eol: result.eol || detectEol(result.content || ""),
+      cursor: 0
+    };
+    tabs.push(tab);
+    activeId = tab.id;
+    fileHandleByTab.set(tab.id, handle);
+    void storeFileHandle(tab.id, handle);
+    render();
+    void persistNow();
+    requestAnimationFrame(() => editor.focus());
+    return true;
+  }
+
+  async function openDroppedHandle(handle) {
+    const existing = tabs.find(tab => tab.handleBacked && tab.name === handle?.name && fileHandleByTab.get(tab.id) === handle);
+    if (existing) {
+      activeId = existing.id;
+      render();
+      requestAnimationFrame(() => editor.focus());
+      return;
+    }
+    try {
+      const result = await resultFromDroppedHandle(handle);
+      activateDroppedHandle(handle, result);
+    } catch (error) {
+      await messageModal("Could not open file", String(error));
+    }
   }
 
   function activateOpenedFile(result) {
@@ -838,6 +1025,28 @@ button:disabled{opacity:.45;cursor:default}
 
   async function saveTab(tab = activeTab()) {
     if (!tab) return false;
+    const fileHandle = fileHandleByTab.get(tab.id);
+    if (tab.handleBacked && fileHandle) {
+      try {
+        if (typeof fileHandle.queryPermission === "function" && typeof fileHandle.requestPermission === "function") {
+          let permission = await fileHandle.queryPermission({ mode:"readwrite" });
+          if (permission !== "granted") permission = await fileHandle.requestPermission({ mode:"readwrite" });
+          if (permission !== "granted") throw new Error("write permission was not granted");
+        }
+        const writable = await fileHandle.createWritable();
+        await writable.write(tab.content);
+        await writable.close();
+        tab.dirty = false;
+        tab.recovered = false;
+        tab.eol = detectEol(tab.content);
+        render();
+        await persistNow();
+        return true;
+      } catch (error) {
+        await messageModal("Could not save file", String(error));
+        return false;
+      }
+    }
     if (!tab.path) return saveAsTab(tab);
     try {
       const result = await request("file.write", { path: tab.path, content: tab.content });
@@ -862,6 +1071,9 @@ button:disabled{opacity:.45;cursor:default}
       const result = await request("file.save_as", { suggestedName: suggested, content: tab.content });
       if (!result || !result.saved) return false;
       tab.path = result.path;
+      tab.handleBacked = false;
+      fileHandleByTab.delete(tab.id);
+      void deleteFileHandle(tab.id);
       tab.name = basename(result.path);
       tab.dirty = false;
       tab.recovered = false;
@@ -910,7 +1122,7 @@ button:disabled{opacity:.45;cursor:default}
     const tab = tabs.find(item => item.id === id);
     if (!tab) return;
 
-    if (!tab.path) {
+    if (!tab.path && !tab.handleBacked) {
       const choice = await choiceModal(
         "Close unsaved document?",
         `“${tab.name}” has never been saved as a file.`,
@@ -938,6 +1150,8 @@ button:disabled{opacity:.45;cursor:default}
 
     const index = tabs.findIndex(item => item.id === id);
     tabs.splice(index, 1);
+    fileHandleByTab.delete(id);
+    void deleteFileHandle(id);
     if (activeId === id) {
       activeId = tabs[Math.min(index, tabs.length - 1)]?.id || null;
     }
