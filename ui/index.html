@@ -718,12 +718,19 @@ button:disabled{opacity:.45;cursor:default}
     if (draggedTabId || !event.dataTransfer) return;
     const types = Array.from(event.dataTransfer.types || []);
     if (types.includes("application/x-remotehand-editor-tab")) return;
+
+    const externalFiles = types.includes("Files");
     const paths = droppedPaths(event.dataTransfer);
-    if (paths.length === 0) return;
+    if (!externalFiles && paths.length === 0) return;
 
     event.preventDefault();
     event.stopPropagation();
     clearFileDropState();
+
+    // Explorer/WebView2 intentionally withholds the native path from the DOM
+    // File object. RemoteHand's host bridge will deliver the real path through
+    // the files.drop event immediately after this browser drop completes.
+    if (paths.length === 0) return;
 
     if (paths.length !== 1) {
       void messageModal("Could not open files", "Drop one file at a time onto the Editor tab area.");
