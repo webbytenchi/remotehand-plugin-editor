@@ -271,6 +271,7 @@ button:disabled{opacity:.45;cursor:default}
   function updateFileDropState(event) {
     if (draggedTabId || !event.dataTransfer) return false;
     const types = Array.from(event.dataTransfer.types || []);
+    if (types.includes("application/x-remotehand-editor-tab")) return false;
     const mayContainPath = types.includes("Files") || types.includes("text/plain") || types.includes("text/uri-list");
     if (!mayContainPath) return false;
 
@@ -590,6 +591,7 @@ button:disabled{opacity:.45;cursor:default}
         item.classList.add("dragging");
         if (event.dataTransfer) {
           event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData("application/x-remotehand-editor-tab", tab.id);
           event.dataTransfer.setData("text/plain", tab.id);
         }
       });
@@ -611,6 +613,7 @@ button:disabled{opacity:.45;cursor:default}
       item.addEventListener("drop", event => {
         if (!draggedTabId || draggedTabId === tab.id) return;
         event.preventDefault();
+        event.stopPropagation();
         const bounds = item.getBoundingClientRect();
         const placeAfter = event.clientX >= bounds.left + bounds.width / 2;
         const changed = reorderTab(draggedTabId, tab.id, placeAfter);
@@ -693,6 +696,7 @@ button:disabled{opacity:.45;cursor:default}
   tabsShell.addEventListener("drop", event => {
     if (draggedTabId || !event.dataTransfer) return;
     const types = Array.from(event.dataTransfer.types || []);
+    if (types.includes("application/x-remotehand-editor-tab")) return;
     if (!types.includes("Files") && !types.includes("text/plain") && !types.includes("text/uri-list")) return;
 
     event.preventDefault();
@@ -724,6 +728,7 @@ button:disabled{opacity:.45;cursor:default}
   tabsHost.addEventListener("drop", event => {
     if (!draggedTabId || event.target.closest(".tab")) return;
     event.preventDefault();
+    event.stopPropagation();
     const fromIndex = tabs.findIndex(tab => tab.id === draggedTabId);
     if (fromIndex >= 0 && fromIndex !== tabs.length - 1) {
       const [moved] = tabs.splice(fromIndex, 1);
