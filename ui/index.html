@@ -1496,7 +1496,13 @@ button:disabled{opacity:.45;cursor:default}
       const paths = payload && Array.isArray(payload.paths)
         ? payload.paths.filter(path => typeof path === "string" && path.trim())
         : [];
+      const point = payload && payload.position;
+      const rect = tabsShell.getBoundingClientRect();
+      const overTabs = point && Number.isFinite(point.x) && Number.isFinite(point.y)
+        && point.x >= rect.left && point.x <= rect.right
+        && point.y >= rect.top && point.y <= rect.bottom;
       clearFileDropState();
+      if (!overTabs) return;
       if (paths.length !== 1) {
         if (paths.length > 1) void messageModal("Could not open files", "Drop one file at a time onto the Editor tab area.");
         return;
