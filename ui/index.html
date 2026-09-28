@@ -413,6 +413,7 @@ button:disabled{opacity:.45;cursor:default}
       name: "Untitled " + untitledCounter++,
       path: null,
       content,
+      savedContent: "",
       dirty: Boolean(content),
       recovered: false,
       encoding: "UTF-8",
@@ -436,6 +437,7 @@ button:disabled{opacity:.45;cursor:default}
         name: tab.name,
         path: tab.path,
         content: tab.content,
+        savedContent: typeof tab.savedContent === "string" ? tab.savedContent : "",
         dirty: Boolean(tab.dirty),
         encoding: tab.encoding || "UTF-8",
         eol: tab.eol || detectEol(tab.content),
@@ -480,6 +482,9 @@ button:disabled{opacity:.45;cursor:default}
       name: typeof raw.name === "string" ? raw.name : "Untitled",
       path: typeof raw.path === "string" && raw.path ? raw.path : null,
       content: typeof raw.content === "string" ? raw.content : "",
+      savedContent: typeof raw.savedContent === "string"
+        ? raw.savedContent
+        : (raw.path ? null : ""),
       dirty: Boolean(raw.dirty),
       recovered: Boolean(raw.path && raw.dirty),
       encoding: "UTF-8",
@@ -488,14 +493,21 @@ button:disabled{opacity:.45;cursor:default}
     }));
 
     for (const tab of tabs) {
-      if (!tab.path || tab.dirty) continue;
+      if (!tab.path) continue;
       try {
         const fresh = await request("file.read", { path: tab.path });
-        tab.content = fresh.content;
-        tab.name = fresh.name || basename(tab.path);
-        tab.eol = fresh.eol || detectEol(tab.content);
+        tab.savedContent = fresh.content || "";
+        if (!tab.dirty) {
+          tab.content = tab.savedContent;
+          tab.name = fresh.name || basename(tab.path);
+          tab.eol = fresh.eol || detectEol(tab.content);
+        } else if (tab.content === tab.savedContent) {
+          tab.dirty = false;
+          tab.recovered = false;
+        }
       } catch (error) {
         console.warn("Editor could not refresh remembered file:", tab.path, error);
+        if (tab.savedContent === null) tab.savedContent = tab.content;
       }
     }
 
@@ -548,53 +560,16 @@ button:disabled{opacity:.45;cursor:default}
     }
   }
 
-  function editorOffsetFromPoint(x, y) {
-    const rect = editor.getBoundingClientRect();
-    const computed = getComputedStyle(editor);
-    const paddingLeft = parseFloat(computed.paddingLeft) || 0;
-    const paddingTop = parseFloat(computed.paddingTop) || 0;
-    const lineHeight = parseFloat(computed.lineHeight) || 20;
-
-    const canvas = document.createElement("canvas");
-    const context = canvas.getContext("2d");
-    if (!context) return editor.selectionStart;
-    context.font = computed.font;
-    const charWidth = context.measureText("M").width || 8;
-
-    const lines = editor.value.split("\n");
-    const rawLine = Math.floor((y - rect.top - paddingTop + editor.scrollTop) / lineHeight);
-    const lineIndex = Math.max(0, Math.min(lines.length - 1, rawLine));
-    const line = lines[lineIndex] || "";
-    const targetColumn = Math.max(0, (x - rect.left - paddingLeft + editor.scrollLeft) / charWidth);
-
-    let visualColumn = 0;
-    let column = 0;
-    for (; column < line.length; column++) {
-      const nextVisualColumn = line[column] === "\t"
-        ? visualColumn + (4 - (visualColumn % 4))
-        : visualColumn + 1;
-      if (targetColumn < (visualColumn + nextVisualColumn) / 2) break;
-      visualColumn = nextVisualColumn;
-    }
-
-    let offset = 0;
-    for (let index = 0; index < lineIndex; index++) {
-      offset += lines[index].length + 1;
-    }
-    return offset + column;
-  }
-
-  function insertDroppedPaths(paths, point) {
+  function insertDroppedPaths(paths) {
     const tab = activeTab();
-    if (!tab || !point) return;
-    const offset = editorOffsetFromPoint(point.x, point.y);
+    if (!tab) return;
     const insertion = paths.join("\n");
     if (!insertion) return;
 
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
     editor.focus({ preventScroll:true });
-    tab.cursor = offset;
-    editor.setSelectionRange(offset, offset);
-    editor.setRangeText(insertion, offset, offset, "end");
+    editor.setRangeText(insertion, start, end, "end");
     editor.dispatchEvent(new Event("input", { bubbles:true }));
   }
 
@@ -858,6 +833,7 @@ button:disabled{opacity:.45;cursor:default}
       name: result.name || basename(result.path),
       path: result.path,
       content: result.content || "",
+      savedContent: result.content || "",
       dirty: false,
       recovered: false,
       encoding: result.encoding || "UTF-8",
@@ -910,6 +886,7 @@ button:disabled{opacity:.45;cursor:default}
     try {
       const result = await request("file.write", { path: tab.path, content: tab.content });
       tab.name = result.name || basename(tab.path);
+      tab.savedContent = tab.content;
       tab.dirty = false;
       tab.recovered = false;
       tab.eol = result.eol || detectEol(tab.content);
@@ -931,6 +908,7 @@ button:disabled{opacity:.45;cursor:default}
       if (!result || !result.saved) return false;
       tab.path = result.path;
       tab.name = basename(result.path);
+      tab.savedContent = tab.content;
       tab.dirty = false;
       tab.recovered = false;
       tab.eol = detectEol(tab.content);
@@ -952,6 +930,7 @@ button:disabled{opacity:.45;cursor:default}
     try {
       const fresh = await request("file.read", { path: tab.path });
       tab.content = fresh.content || "";
+      tab.savedContent = tab.content;
       tab.name = fresh.name || basename(tab.path);
       tab.dirty = false;
       tab.recovered = false;
@@ -1470,7 +1449,8 @@ button:disabled{opacity:.45;cursor:default}
       clearFindHighlight();
       updateFindCount();
     }
-    tab.dirty = true;
+    tab.dirty = tab.content !== (typeof tab.savedContent === "string" ? tab.savedContent : "");
+    if (!tab.dirty) tab.recovered = false;
     tab.eol = detectEol(tab.content);
     updateSyntaxHighlight();
     updateGutter();
@@ -1478,8 +1458,10 @@ button:disabled{opacity:.45;cursor:default}
     requestAnimationFrame(ensureCaretVisible);
     renderTabs();
     eol.textContent = tab.eol;
-    saveState.textContent = tab.recovered ? "Recovered • Not saved to disk" : "Modified • Not saved to disk";
-    saveState.className = "status-dirty";
+    saveState.textContent = tab.dirty
+      ? (tab.recovered ? "Recovered • Not saved to disk" : "Modified • Not saved to disk")
+      : "Saved";
+    saveState.className = tab.dirty ? "status-dirty" : "";
     schedulePersist();
   });
 
@@ -1576,7 +1558,7 @@ button:disabled{opacity:.45;cursor:default}
       const editorRect = editor.getBoundingClientRect();
       const overEditor = point.x >= editorRect.left && point.x <= editorRect.right
         && point.y >= editorRect.top && point.y <= editorRect.bottom;
-      if (overEditor) insertDroppedPaths(paths, point);
+      if (overEditor) insertDroppedPaths(paths);
     });
   }
 
