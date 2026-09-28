@@ -660,6 +660,26 @@ button:disabled{opacity:.45;cursor:default}
     position.textContent = `Ln ${line}, Col ${col}`;
   }
 
+  function ensureCaretVisible() {
+    const caret = editor.selectionStart;
+    const before = editor.value.slice(0, caret);
+    const lineIndex = before.split("\n").length - 1;
+    const computed = getComputedStyle(editor);
+    const lineHeight = parseFloat(computed.lineHeight) || 20;
+    const paddingTop = parseFloat(computed.paddingTop) || 0;
+    const paddingBottom = parseFloat(computed.paddingBottom) || 0;
+    const caretTop = paddingTop + lineIndex * lineHeight;
+    const caretBottom = caretTop + lineHeight;
+    const visibleTop = editor.scrollTop;
+    const visibleBottom = visibleTop + editor.clientHeight - paddingBottom;
+
+    if (caretBottom > visibleBottom) {
+      editor.scrollTop = Math.max(0, caretBottom - editor.clientHeight + paddingBottom);
+    } else if (caretTop < visibleTop) {
+      editor.scrollTop = Math.max(0, caretTop - paddingTop);
+    }
+  }
+
   function clearTabDropIndicators() {
     for (const element of tabsHost.querySelectorAll(".tab")) {
       element.classList.remove("drop-before", "drop-after", "dragging");
@@ -1643,6 +1663,7 @@ button:disabled{opacity:.45;cursor:default}
     updateSyntaxHighlight();
     updateGutter();
     updatePosition();
+    requestAnimationFrame(ensureCaretVisible);
     renderTabs();
     eol.textContent = tab.eol;
     saveState.textContent = tab.recovered ? "Recovered • Not saved to disk" : "Modified • Not saved to disk";
