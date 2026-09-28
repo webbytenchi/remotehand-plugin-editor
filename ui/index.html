@@ -612,13 +612,10 @@ button:disabled{opacity:.45;cursor:default}
               tab.name = fresh.name || tab.name;
               tab.eol = fresh.eol || detectEol(tab.content);
             } catch (error) {
-              tab.dirty = true;
-              tab.recovered = true;
               console.warn("Editor could not refresh remembered dropped file:", tab.name, error);
             }
           }
-        } else {
-          tab.dirty = true;
+        } else if (tab.dirty) {
           tab.recovered = true;
         }
         continue;
