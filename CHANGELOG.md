@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.3.0] - 2026-09-29
+
+### Added
+
+- F5 inserts a timestamp at the current editing position.
+- Windows Explorer files can be dropped on the tab strip to open the real native file through RemoteHand.
+- Explorer files dropped inside the Editor body insert their full native paths at the current caret/selection, with multiple paths inserted one per line.
+
+### Improved
+
+- Caret tracking follows typing beyond the visible viewport.
+- Trailing-newline visual alignment is corrected.
+- Internal tab ordering remains draggable and persists across reloads.
+- Untouched `Untitled` tabs close without a save prompt while modified untitled tabs still prompt normally.
+
+### Fixed
+
+- Native-file body drops now use the existing caret/selection rather than the mouse drop point.
+- Dirty state is derived from current content versus saved content, so undoing exactly back to the saved state clears Modified and redo restores it.
+- Recovery content that returns exactly to the disk state naturally clears the recovery/dirty condition.
+
+### Verification
+
+- Manual Windows acceptance passed for F5 timestamps, native Explorer tab/body drops, save-back to original files, recovery and save-after-recovery, File Manager integration, caret behavior, tab ordering, untitled-close behavior, and clean/dirty undo-redo transitions.
+
 All notable changes to RemoteHand Editor are documented here.
 
 ## [0.2.1] - 2026-09-28
