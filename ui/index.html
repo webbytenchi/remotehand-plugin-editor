@@ -930,7 +930,7 @@ button:disabled{opacity:.45;cursor:default}
     const tab = tabs.find(item => item.id === id);
     if (!tab) return;
 
-    if (!tab.path) {
+    if (!tab.path && tab.dirty) {
       const choice = await choiceModal(
         "Close unsaved document?",
         `“${tab.name}” has never been saved as a file.`,
