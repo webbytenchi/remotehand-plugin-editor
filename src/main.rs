@@ -175,11 +175,30 @@ fn detect_eol(content: &str) -> &'static str {
     }
 }
 
+fn is_supported_text_path(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return true;
+    };
+    let extension = extension.to_ascii_lowercase();
+    matches!(
+        extension.as_str(),
+        "txt" | "md" | "markdown" | "log" | "json" | "jsonc" | "yaml" | "yml" |
+        "toml" | "ini" | "cfg" | "conf" | "xml" | "html" | "htm" | "css" | "scss" |
+        "sass" | "less" | "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "py" |
+        "rs" | "go" | "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "cs" | "java" |
+        "kt" | "kts" | "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd" |
+        "sql" | "csv" | "tsv" | "env" | "gitignore" | "gitattributes" | "editorconfig"
+    )
+}
+
 fn read_text_file(path: &Path) -> Result<Value, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("cannot inspect {}: {error}", path_text(path)))?;
     if !metadata.is_file() {
         return Err("selected path is not a regular file".to_string());
+    }
+    if !is_supported_text_path(path) {
+        return Err("selected file is not a supported text/code type".to_string());
     }
     if metadata.len() > MAX_FILE_BYTES {
         return Err("file exceeds the Editor 8 MiB limit".to_string());
@@ -416,7 +435,20 @@ mod tests {
 
     fn temp_file(name: &str, bytes: &[u8]) -> PathBuf {
         let mut path = std::env::temp_dir();
-        path.push(format!("remotehand-editor-test-{name}-{}", std::process::id()));
+        let source = Path::new(name);
+        let stem = source
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("file");
+        let filename = match source.extension().and_then(|value| value.to_str()) {
+            Some(extension) => format!(
+                "remotehand-editor-test-{stem}-{}.{}",
+                std::process::id(),
+                extension
+            ),
+            None => format!("remotehand-editor-test-{stem}-{}", std::process::id()),
+        };
+        path.push(filename);
         fs::write(&path, bytes).expect("write temp file");
         path
     }
@@ -447,9 +479,17 @@ mod tests {
 
     #[test]
     fn rejects_binary_content() {
-        let path = temp_file("binary.bin", &[1, 2, 0, 4]);
+        let path = temp_file("binary.txt", &[1, 2, 0, 4]);
         let error = read_text_file(&path).unwrap_err();
         assert!(error.contains("binary"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn rejects_unsupported_extension() {
+        let path = temp_file("program.exe", b"plain text");
+        let error = read_text_file(&path).unwrap_err();
+        assert!(error.contains("supported text/code"));
         let _ = fs::remove_file(path);
     }
 
