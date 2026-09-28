@@ -501,7 +501,8 @@ button:disabled{opacity:.45;cursor:default}
     const tab = activeTab();
     if (!tab) { syntaxCode.textContent = ""; return; }
     const patterns = syntaxPatterns(languageInfo(tab.name)[1]);
-    syntaxCode.innerHTML = patterns.length ? tokenHtml(tab.content,patterns) : escapeHtml(tab.content);
+    const highlighted = patterns.length ? tokenHtml(tab.content,patterns) : escapeHtml(tab.content);
+    syntaxCode.innerHTML = highlighted + "&#8203;";
     syntaxLayer.scrollTop = editor.scrollTop;
     syntaxLayer.scrollLeft = editor.scrollLeft;
   }
@@ -1221,7 +1222,8 @@ button:disabled{opacity:.45;cursor:default}
     findHighlightCode.innerHTML =
       escapeHtml(before) +
       '<span class="find-current">' + escapeHtml(match) + '</span>' +
-      escapeHtml(after);
+      escapeHtml(after) +
+      "&#8203;";
     findHighlightLayer.scrollTop = editor.scrollTop;
     findHighlightLayer.scrollLeft = editor.scrollLeft;
   }
