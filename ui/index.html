@@ -1090,7 +1090,35 @@ button:disabled{opacity:.45;cursor:default}
   }
 
   async function discardRecovered(tab) {
-    if (!tab || !tab.path) return;
+    if (!tab) return;
+
+    if (tab.handleBacked) {
+      const handle = fileHandleByTab.get(tab.id);
+      if (!handle) {
+        await messageModal(
+          "Could not reload file",
+          "Editor no longer has access to the original dropped file. Use Save As to keep this recovered copy, or close the tab to discard it."
+        );
+        return;
+      }
+      try {
+        const fresh = await resultFromDroppedHandle(handle);
+        tab.content = fresh.content || "";
+        tab.name = fresh.name || tab.name;
+        tab.dirty = false;
+        tab.recovered = false;
+        tab.eol = fresh.eol || detectEol(tab.content);
+        tab.cursor = 0;
+        render();
+        await persistNow();
+        editor.focus();
+      } catch (error) {
+        await messageModal("Could not reload file", String(error));
+      }
+      return;
+    }
+
+    if (!tab.path) return;
     try {
       const fresh = await request("file.read", { path: tab.path });
       tab.content = fresh.content || "";
