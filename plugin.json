@@ -1,7 +1,7 @@
 {
   "id": "remotehand.editor",
   "name": "RemoteHand Editor",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "apiVersion": 1,
   "author": "RemoteHand",
   "description": "A lightweight programmer-focused text editor for RemoteHand.",
