@@ -17,7 +17,11 @@ button:disabled{opacity:.45;cursor:default}
 .toolbar{height:45px;display:flex;align-items:center;gap:6px;padding:7px 10px;border-bottom:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#171d24);flex:0 0 auto}
 .toolbar .spacer{flex:1}
 .tool{height:30px}
-.tabs-shell{height:38px;display:grid;grid-template-columns:28px minmax(0,1fr) 28px;border-bottom:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#151b22);flex:0 0 auto}
+.tabs-shell{height:38px;display:grid;grid-template-columns:28px minmax(0,1fr) 28px;border-bottom:1px solid var(--remotehand-border,#2e3743);background:var(--remotehand-surface,#151b22);flex:0 0 auto;position:relative}
+.tabs-shell.file-drop-ready{cursor:copy;box-shadow:inset 0 0 0 1px var(--remotehand-accent-border,#5d7fa4)}
+.tabs-shell.file-drop-ready::after{content:"Open file here";position:absolute;inset:3px 32px;z-index:8;display:flex;align-items:center;justify-content:center;border:1px dashed var(--remotehand-accent-border,#5d7fa4);border-radius:6px;background:color-mix(in srgb,var(--remotehand-accent-surface,#19304a) 88%,transparent);color:var(--remotehand-text,#eef3f8);font-weight:700;pointer-events:none}
+.tabs-shell.file-drop-invalid{cursor:not-allowed}
+.tabs-shell.file-drop-invalid::after{content:"Open one file at a time";position:absolute;inset:3px 32px;z-index:8;display:flex;align-items:center;justify-content:center;border:1px dashed var(--remotehand-danger-border,#754448);border-radius:6px;background:color-mix(in srgb,var(--remotehand-danger-surface,#2a1719) 88%,transparent);color:var(--remotehand-danger-text,#efaaaa);font-weight:700;pointer-events:none}
 .tab-scroll{border:0;border-radius:0;padding:0;background:transparent;color:var(--remotehand-muted-text,#9aa8b8);font-size:16px}
 .tab-scroll:hover:not(:disabled){background:var(--remotehand-button-hover,#2a3542);color:var(--remotehand-text,#eef3f8)}
 .tab-scroll:disabled{opacity:.28}
@@ -153,6 +157,7 @@ button:disabled{opacity:.45;cursor:default}
 (() => {
   const request = (method, params = null) => window.remotehand.request(method, params);
 
+  const tabsShell = document.querySelector(".tabs-shell");
   const tabsHost = document.getElementById("tabs");
   const tabsPrev = document.getElementById("tabsPrev");
   const tabsNext = document.getElementById("tabsNext");
@@ -198,6 +203,86 @@ button:disabled{opacity:.45;cursor:default}
   let applyingHistory = false;
 
   const basename = path => String(path || "").split(/[\\/]/).filter(Boolean).pop() || String(path || "");
+
+  function padTimestampPart(value) {
+    return String(value).padStart(2, "0");
+  }
+
+  function formatTimestamp(date = new Date()) {
+    return date.getFullYear() + "-" +
+      padTimestampPart(date.getMonth() + 1) + "-" +
+      padTimestampPart(date.getDate()) + " " +
+      padTimestampPart(date.getHours()) + ":" +
+      padTimestampPart(date.getMinutes()) + ":" +
+      padTimestampPart(date.getSeconds());
+  }
+
+  function pathFromFileUri(value) {
+    try {
+      const url = new URL(value);
+      if (url.protocol !== "file:") return "";
+      let path = decodeURIComponent(url.pathname || "");
+      if (url.hostname) {
+        return "\\\\" + url.hostname + path.replace(/\//g, "\\");
+      }
+      if (/^\/[A-Za-z]:\//.test(path)) path = path.slice(1);
+      if (/^[A-Za-z]:\//.test(path)) path = path.replace(/\//g, "\\");
+      return path;
+    } catch {
+      return "";
+    }
+  }
+
+  function normalizeDroppedPath(value) {
+    let path = String(value || "").trim();
+    if (!path || path.startsWith("#")) return "";
+    if ((path.startsWith('"') && path.endsWith('"')) || (path.startsWith("'") && path.endsWith("'"))) {
+      path = path.slice(1, -1).trim();
+    }
+    if (/^file:\/\//i.test(path)) return pathFromFileUri(path);
+    return path;
+  }
+
+  function droppedPaths(dataTransfer) {
+    if (!dataTransfer) return [];
+    const paths = [];
+
+    for (const file of Array.from(dataTransfer.files || [])) {
+      const localPath = typeof file.path === "string" ? file.path : "";
+      if (localPath) paths.push(localPath);
+    }
+
+    for (const type of ["text/uri-list", "text/plain"]) {
+      let text = "";
+      try { text = dataTransfer.getData(type) || ""; } catch {}
+      for (const line of text.split(/\r?\n/)) {
+        const path = normalizeDroppedPath(line);
+        if (path) paths.push(path);
+      }
+    }
+
+    return [...new Set(paths)];
+  }
+
+  function clearFileDropState() {
+    tabsShell.classList.remove("file-drop-ready", "file-drop-invalid");
+  }
+
+  function updateFileDropState(event) {
+    if (draggedTabId || !event.dataTransfer) return false;
+    const types = Array.from(event.dataTransfer.types || []);
+    const mayContainPath = types.includes("Files") || types.includes("text/plain") || types.includes("text/uri-list");
+    if (!mayContainPath) return false;
+
+    event.preventDefault();
+    const fileCount = event.dataTransfer.files ? event.dataTransfer.files.length : 0;
+    const knownPaths = droppedPaths(event.dataTransfer);
+    const multiple = fileCount > 1 || knownPaths.length > 1;
+    event.dataTransfer.dropEffect = multiple ? "none" : "copy";
+    tabsShell.classList.toggle("file-drop-invalid", multiple);
+    tabsShell.classList.toggle("file-drop-ready", !multiple);
+    return true;
+  }
 
   function languageInfo(name) {
     const ext = (String(name).match(/\.([^.]+)$/) || [,""])[1].toLowerCase();
@@ -589,6 +674,46 @@ button:disabled{opacity:.45;cursor:default}
   });
   tabsHost.addEventListener("scroll", updateTabScrollButtons, { passive:true });
   window.addEventListener("resize", updateTabScrollButtons);
+
+  tabsShell.addEventListener("dragenter", event => {
+    updateFileDropState(event);
+  });
+
+  tabsShell.addEventListener("dragover", event => {
+    updateFileDropState(event);
+  });
+
+  tabsShell.addEventListener("dragleave", event => {
+    if (draggedTabId) return;
+    const related = event.relatedTarget;
+    if (related instanceof Node && tabsShell.contains(related)) return;
+    clearFileDropState();
+  });
+
+  tabsShell.addEventListener("drop", event => {
+    if (draggedTabId || !event.dataTransfer) return;
+    const types = Array.from(event.dataTransfer.types || []);
+    if (!types.includes("Files") && !types.includes("text/plain") && !types.includes("text/uri-list")) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const fileCount = event.dataTransfer.files ? event.dataTransfer.files.length : 0;
+    const paths = droppedPaths(event.dataTransfer);
+    clearFileDropState();
+
+    if (fileCount > 1 || paths.length > 1) {
+      void messageModal("Could not open files", "Drop one file at a time onto the Editor tab area.");
+      return;
+    }
+    if (paths.length !== 1) {
+      void messageModal(
+        "Could not open dropped file",
+        "The drop did not expose a local file path that Editor can open."
+      );
+      return;
+    }
+    void openPath(paths[0]);
+  });
 
   tabsHost.addEventListener("dragover", event => {
     if (!draggedTabId || event.target.closest(".tab")) return;
@@ -1181,6 +1306,12 @@ button:disabled{opacity:.45;cursor:default}
   editor.addEventListener("keydown", event => {
     const tab = activeTab();
     if (!tab) return;
+
+    if (event.key === "F5" && !event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey) {
+      event.preventDefault();
+      replaceEditorRange(editor.selectionStart, editor.selectionEnd, formatTimestamp());
+      return;
+    }
 
     if (event.key === "Tab" && !event.ctrlKey && !event.altKey && !event.metaKey) {
       event.preventDefault();
