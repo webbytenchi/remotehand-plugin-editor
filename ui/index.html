@@ -548,6 +548,56 @@ button:disabled{opacity:.45;cursor:default}
     }
   }
 
+  function editorOffsetFromPoint(x, y) {
+    const rect = editor.getBoundingClientRect();
+    const computed = getComputedStyle(editor);
+    const paddingLeft = parseFloat(computed.paddingLeft) || 0;
+    const paddingTop = parseFloat(computed.paddingTop) || 0;
+    const lineHeight = parseFloat(computed.lineHeight) || 20;
+
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    if (!context) return editor.selectionStart;
+    context.font = computed.font;
+    const charWidth = context.measureText("M").width || 8;
+
+    const lines = editor.value.split("\n");
+    const rawLine = Math.floor((y - rect.top - paddingTop + editor.scrollTop) / lineHeight);
+    const lineIndex = Math.max(0, Math.min(lines.length - 1, rawLine));
+    const line = lines[lineIndex] || "";
+    const targetColumn = Math.max(0, (x - rect.left - paddingLeft + editor.scrollLeft) / charWidth);
+
+    let visualColumn = 0;
+    let column = 0;
+    for (; column < line.length; column++) {
+      const nextVisualColumn = line[column] === "\t"
+        ? visualColumn + (4 - (visualColumn % 4))
+        : visualColumn + 1;
+      if (targetColumn < (visualColumn + nextVisualColumn) / 2) break;
+      visualColumn = nextVisualColumn;
+    }
+
+    let offset = 0;
+    for (let index = 0; index < lineIndex; index++) {
+      offset += lines[index].length + 1;
+    }
+    return offset + column;
+  }
+
+  function insertDroppedPaths(paths, point) {
+    const tab = activeTab();
+    if (!tab || !point) return;
+    const offset = editorOffsetFromPoint(point.x, point.y);
+    const insertion = paths.join("\n");
+    if (!insertion) return;
+
+    editor.focus({ preventScroll:true });
+    tab.cursor = offset;
+    editor.setSelectionRange(offset, offset);
+    editor.setRangeText(insertion, offset, offset, "end");
+    editor.dispatchEvent(new Event("input", { bubbles:true }));
+  }
+
   function clearTabDropIndicators() {
     for (const element of tabsHost.querySelectorAll(".tab")) {
       element.classList.remove("drop-before", "drop-after", "dragging");
@@ -1504,17 +1554,29 @@ button:disabled{opacity:.45;cursor:default}
         ? payload.paths.filter(path => typeof path === "string" && path.trim())
         : [];
       const point = payload && payload.position;
-      const rect = tabsShell.getBoundingClientRect();
-      const overTabs = point && Number.isFinite(point.x) && Number.isFinite(point.y)
-        && point.x >= rect.left && point.x <= rect.right
-        && point.y >= rect.top && point.y <= rect.bottom;
-      clearFileDropState();
-      if (!overTabs) return;
-      if (paths.length !== 1) {
-        if (paths.length > 1) void messageModal("Could not open files", "Drop one file at a time onto the Editor tab area.");
+      if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y) || paths.length === 0) {
+        clearFileDropState();
         return;
       }
-      void openPath(paths[0]);
+
+      const tabsRect = tabsShell.getBoundingClientRect();
+      const overTabs = point.x >= tabsRect.left && point.x <= tabsRect.right
+        && point.y >= tabsRect.top && point.y <= tabsRect.bottom;
+      clearFileDropState();
+
+      if (overTabs) {
+        if (paths.length !== 1) {
+          if (paths.length > 1) void messageModal("Could not open files", "Drop one file at a time onto the Editor tab area.");
+          return;
+        }
+        void openPath(paths[0]);
+        return;
+      }
+
+      const editorRect = editor.getBoundingClientRect();
+      const overEditor = point.x >= editorRect.left && point.x <= editorRect.right
+        && point.y >= editorRect.top && point.y <= editorRect.bottom;
+      if (overEditor) insertDroppedPaths(paths, point);
     });
   }
 
