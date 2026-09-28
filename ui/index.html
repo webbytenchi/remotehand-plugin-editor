@@ -710,9 +710,12 @@ button:disabled{opacity:.45;cursor:default}
       return;
     }
     if (paths.length !== 1) {
+      const explorerLikeDrop = fileCount === 1 || types.includes("Files");
       void messageModal(
         "Could not open dropped file",
-        "The drop did not expose a local file path that Editor can open."
+        explorerLikeDrop
+          ? "Windows Explorer did not expose the file's local path to this Editor panel. Dragging from RemoteHand File Manager is supported."
+          : "The drop did not expose a local file path that Editor can open."
       );
       return;
     }
