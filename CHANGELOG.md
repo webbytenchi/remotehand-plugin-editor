@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.1] - 2026-09-29
+
+### Improved
+
+- Recovery of unsaved edits is now silent; the persistent recovery banner and its duplicate Save/Discard controls were removed while normal unsaved-close protection remains intact.
+
+### Verification
+
+- Automated tests pass with the runtime version matching the plugin manifest.
+- Manual Windows acceptance confirmed recovered edits are restored without the banner and closing unsaved content still prompts with the normal Save / Save As / Discard flow.
+
 ## [0.3.0] - 2026-09-29
 
 ### Added
