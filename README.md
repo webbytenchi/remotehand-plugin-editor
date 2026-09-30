@@ -2,21 +2,24 @@
 
 RemoteHand Editor is a lightweight programmer-focused text and code editor for RemoteHand.
 
-Version **0.2.0** builds on the first usable Editor baseline with Find/Replace, document-focused undo/redo behavior, and generic file-opening integration from other RemoteHand plugins.
+Version **0.3.1** builds on the v0.2.x foundation with native Windows Explorer drag/drop integration, F5 timestamp insertion, more accurate dirty-state behavior, improved caret/rendering behavior, and silent recovery of unsaved edits.
 
 ## Requirements
 
-RemoteHand Editor v0.1.0 requires the RemoteHand Plugin API v1 host capabilities used by the Editor release:
+RemoteHand Editor uses RemoteHand Plugin API v1 host capabilities for:
 
 - plugin-scoped storage
 - host-owned native file open/save dialogs
 - RemoteHand appearance data for UI and terminal fonts/colors
+- native Explorer file-path delivery for drag/drop
 
 The Editor's standalone file/editing capabilities require **RemoteHand v1.2.17 or later**.
 
 Cross-plugin file opening, including File Manager's **Open in Editor** action, requires **RemoteHand v1.2.20 or later**.
 
-## v0.2.0 features
+Native Windows Explorer file drops require a RemoteHand build with the generic native file-drop bridge.
+
+## v0.3.1 features
 
 ### Documents and files
 
@@ -27,17 +30,20 @@ Cross-plugin file opening, including File Manager's **Open in Editor** action, r
 - reject binary-looking files
 - preserve LF/CRLF status
 - remember open documents between RemoteHand sessions
+- open Windows Explorer files by dropping them on the tab strip
+- insert full native file paths at the current caret/selection by dropping Explorer files into the Editor body
+- multiple dropped file paths are inserted one per line
 
-Named files are **not silently autosaved to disk** in v0.1.0. Explicit Save writes the real file. While editing, Editor maintains a full recovery snapshot so unsaved work can survive RemoteHand being closed.
+Named files are **not silently autosaved to disk**. Explicit Save writes the real file. While editing, Editor maintains a recovery snapshot so unsaved work can survive RemoteHand being closed.
 
 ### Recovery
 
 - untitled buffers survive a full RemoteHand restart
 - unsaved edits to named files survive a full RemoteHand restart
-- recovered named files are clearly marked as not yet written to disk
-- recovered changes can be saved to disk or discarded in favor of the disk copy
-- closing RemoteHand or the Editor panel does not trigger a chain of save prompts
-- explicitly closing an unsaved tab uses Save / Save As, Discard, or Cancel as appropriate
+- recovery is restored silently without a persistent recovery banner
+- closing RemoteHand or the Editor panel does not trigger unnecessary save prompts
+- explicitly closing unsaved content uses Save / Save As / Discard / Cancel as appropriate
+- recovery content that returns exactly to the disk state naturally clears the dirty/recovery condition
 
 Recovery currently stores full document contents rather than incremental patches.
 
@@ -48,6 +54,8 @@ Recovery currently stores full document contents rather than incremental patches
 - persisted tab order
 - active tab is automatically kept visible
 - compact previous/next controls when the tab strip overflows
+- untouched `Untitled` tabs close without a save prompt
+- modified untitled tabs retain normal save/discard protection
 - `Ctrl+Tab` — next tab
 - `Ctrl+Shift+Tab` — previous tab
 - `Ctrl+W` — close current tab
@@ -58,11 +66,16 @@ Tab navigation wraps from the last tab to the first and vice versa.
 
 - line-number gutter
 - current line and column status
+- caret tracking follows typing beyond the visible viewport
+- corrected trailing-newline visual alignment
+- dirty state is derived from current content versus saved content
+- undoing exactly back to the saved state clears **Modified**
+- redo restores **Modified** when content diverges again
+- `F5` inserts a timestamp at the current editing position
 - `Tab` inserts four spaces
 - `Shift+Tab` outdents
 - multi-line indent/outdent
 - Enter preserves the current line's leading indentation
-- standard textarea undo/redo and selection behavior
 
 ### Find and Replace
 
@@ -81,7 +94,7 @@ Tab navigation wraps from the last tab to the first and vice versa.
 
 ### Syntax highlighting
 
-v0.1.0 includes lightweight syntax highlighting for common programmer file types, including:
+Editor includes lightweight syntax highlighting for common programmer file types, including:
 
 - JavaScript / TypeScript
 - Python
@@ -98,7 +111,7 @@ v0.1.0 includes lightweight syntax highlighting for common programmer file types
 
 Language mode is inferred from the filename extension. Plain text remains unhighlighted.
 
-The v0.1.0 highlighter is intentionally lightweight; it is not a full parser or language server.
+The highlighter is intentionally lightweight; it is not a full parser or language server.
 
 ### Cross-plugin file opening
 
@@ -108,6 +121,15 @@ Editor can receive a generic panel context containing a local file path. When an
 - an already-open path activates its existing tab
 - a new supported text file opens in a normal Editor tab
 - normal Editor file-size, UTF-8, and binary-content safety checks still apply
+
+### Native Explorer drag/drop
+
+Windows Explorer integration uses RemoteHand's generic native file-drop bridge:
+
+- dropping files on the tab strip opens the real native files
+- dropping files inside the Editor body inserts native paths at the existing caret/selection
+- multiple paths are inserted one per line
+- the Editor keeps ownership of file-opening and text-insertion semantics while RemoteHand supplies generic native paths
 
 ### RemoteHand appearance integration
 
@@ -122,7 +144,7 @@ Changes to RemoteHand appearance are delivered through the generic plugin appear
 
 ## Supported file behavior
 
-Editor v0.1.0 is designed for UTF-8 text/code files. Common extensions include:
+Editor v0.3.1 is designed for UTF-8 text/code files. Common extensions include:
 
 `.txt`, `.md`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.xml`, `.html`, `.htm`, `.css`, `.js`, `.jsx`, `.ts`, `.tsx`, `.py`, `.rs`, `.go`, `.c`, `.h`, `.cpp`, `.hpp`, `.cs`, `.java`, `.sh`, `.ps1`, and `.log`.
 
@@ -133,6 +155,7 @@ RemoteHand core owns generic infrastructure:
 - Plugin API v1 runtime
 - plugin-scoped storage
 - host-owned native file dialogs
+- native file-path delivery
 - plugin appearance propagation
 - panels, navigation, and contribution plumbing
 
@@ -141,8 +164,9 @@ RemoteHand Editor owns:
 - document/session semantics
 - recovery behavior
 - named-file editing
+- native-drop open/insert behavior
 - syntax and language presentation
-- Find behavior
+- Find/Replace behavior
 - tab management
 - programmer-oriented editing interactions
 
@@ -166,15 +190,13 @@ The build script creates:
 
 ```text
 dist\remotehand-editor-windows-x86_64\
-dist\remotehand-editor-v0.2.0-windows-x86_64.zip
+dist\remotehand-editor-v0.3.1-windows-x86_64.zip
 dist\SHA256SUMS.txt
 ```
 
 The installable directory contains the plugin manifest, UI, sidebar asset, and Windows x86_64 runtime executable.
 
 ## Current limitations
-
-The first release deliberately keeps scope small:
 
 - UTF-8 only
 - no external-file-change/conflict detection yet
