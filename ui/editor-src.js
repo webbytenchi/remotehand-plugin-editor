@@ -307,6 +307,18 @@ import {languages} from "@codemirror/language-data";
       return;
     }
 
+    if (side && mod && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+      event.preventDefault();
+      const target = binaryEdgePosition(
+        view.state,
+        side,
+        event.key === "ArrowDown",
+        hexCell ? hexCell.nibble : 0
+      );
+      view.dispatch({selection:{anchor:target}, scrollIntoView:true});
+      return;
+    }
+
     if (event.altKey || mod) return;
 
     if (event.key === "Tab") {
@@ -813,6 +825,19 @@ import {languages} from "@codemirror/language-data";
     applyLineNumbersState();
     view.dispatch({effects:wrapCompartment.reconfigure(wrapText ? EditorView.lineWrapping : [])});
     tab.cmState = view.state;
+
+    if (tab.binary && tab.hexEditable) {
+      const selection = currentSelection();
+      if (!hexNibbleAt(view.state, selection.head) && !asciiCellAt(view.state, selection.head)) {
+        const line = view.state.doc.lineAt(Math.min(selection.head, view.state.doc.length));
+        const column = selection.head - line.from;
+        const side = column >= 60 ? "ascii" : "hex";
+        const target = binaryEdgePosition(view.state, side, true, 0);
+        view.dispatch({selection:{anchor:target}, scrollIntoView:true});
+        tab.cmState = view.state;
+        tab.cursor = target;
+      }
+    }
 
     encoding.textContent = tab.encoding || "UTF-8";
     eol.textContent = tab.binary ? "—" : (tab.eol || detectEol(tab.content));
