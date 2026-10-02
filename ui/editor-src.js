@@ -334,6 +334,7 @@ import {languages} from "@codemirror/language-data";
       dirty:Boolean(content),
       recovered:false,
       encoding:"UTF-8",
+      bom:false,
       eol:detectEol(content),
       cursor:0,
       cmState:null
@@ -361,6 +362,7 @@ import {languages} from "@codemirror/language-data";
         savedContent:typeof tab.savedContent === "string" ? tab.savedContent : "",
         dirty:Boolean(tab.dirty),
         encoding:tab.encoding || "UTF-8",
+        bom:Boolean(tab.bom),
         eol:tab.eol || detectEol(tab.content),
         cursor:Number.isFinite(tab.cursor) ? tab.cursor : 0
       }))
@@ -414,6 +416,7 @@ import {languages} from "@codemirror/language-data";
       dirty:Boolean(raw.dirty),
       recovered:Boolean(raw.path && raw.dirty),
       encoding:"UTF-8",
+      bom:Boolean(raw.bom),
       eol:raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || "")),
       cursor:Math.max(0, Number(raw.cursor) || 0),
       cmState:null
@@ -427,6 +430,7 @@ import {languages} from "@codemirror/language-data";
         if (!tab.dirty) {
           tab.content = tab.savedContent;
           tab.name = fresh.name || basename(tab.path);
+          tab.bom = Boolean(fresh.bom);
           tab.eol = fresh.eol || detectEol(tab.content);
         } else if (tab.content === tab.savedContent) {
           tab.dirty = false;
@@ -753,6 +757,7 @@ import {languages} from "@codemirror/language-data";
       dirty:false,
       recovered:false,
       encoding:result.encoding || "UTF-8",
+      bom:Boolean(result.bom),
       eol:result.eol || detectEol(result.content || ""),
       cursor:0,
       cmState:null
@@ -805,11 +810,12 @@ import {languages} from "@codemirror/language-data";
     if (!tab.path) return saveAsTab(tab);
 
     try {
-      const result = await request("file.write", {path:tab.path, content:tab.content});
+      const result = await request("file.write", {path:tab.path, content:tab.content, bom:Boolean(tab.bom)});
       tab.name = result.name || basename(tab.path);
       tab.savedContent = tab.content;
       tab.dirty = false;
       tab.recovered = false;
+      tab.bom = Boolean(result.bom);
       tab.eol = result.eol || detectEol(tab.content);
       renderTabs();
       updateSaveState();
@@ -829,7 +835,8 @@ import {languages} from "@codemirror/language-data";
     nativeDialogPending = true;
     try {
       const suggested = tab.path ? tab.name : (tab.name.startsWith("Untitled ") ? "untitled.txt" : tab.name);
-      const result = await request("file.save_as", {suggestedName:suggested, content:tab.content});
+      const saveAsContent = tab.bom ? "\uFEFF" + tab.content : tab.content;
+      const result = await request("file.save_as", {suggestedName:suggested, content:saveAsContent});
       if (!result || !result.saved) return false;
 
       tab.path = result.path;
@@ -837,6 +844,7 @@ import {languages} from "@codemirror/language-data";
       tab.savedContent = tab.content;
       tab.dirty = false;
       tab.recovered = false;
+      tab.bom = Boolean(tab.bom);
       tab.eol = detectEol(tab.content);
       tab.cmState = null;
 
