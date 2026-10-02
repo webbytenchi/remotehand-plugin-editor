@@ -306,16 +306,7 @@ fn read_text_file(path: &Path, allow_binary: bool, edit_binary: bool) -> Result<
     }))
 }
 
-fn write_binary_file(path: &Path, hex: &str) -> Result<Value, String> {
-    if path.as_os_str().is_empty() {
-        return Err("file path is required".to_string());
-    }
-    let metadata = fs::symlink_metadata(path)
-        .map_err(|error| format!("cannot inspect {}: {error}", path_text(path)))?;
-    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
-        return Err("Editor only writes existing regular files".to_string());
-    }
-
+fn parse_hex_payload(hex: &str) -> Result<Vec<u8>, String> {
     let compact = hex.trim();
     if compact.len() % 2 != 0 {
         return Err("hex payload has an odd number of digits".to_string());
@@ -331,7 +322,20 @@ fn write_binary_file(path: &Path, hex: &str) -> Result<Value, String> {
             .map_err(|_| format!("invalid hexadecimal byte at offset {}", index / 2))?;
         bytes.push(byte);
     }
+    Ok(bytes)
+}
 
+fn write_binary_file(path: &Path, hex: &str) -> Result<Value, String> {
+    if path.as_os_str().is_empty() {
+        return Err("file path is required".to_string());
+    }
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("cannot inspect {}: {error}", path_text(path)))?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err("Editor only writes existing regular files".to_string());
+    }
+
+    let bytes = parse_hex_payload(hex)?;
     fs::write(path, &bytes)
         .map_err(|error| format!("cannot save {}: {error}", path_text(path)))?;
 
@@ -454,6 +458,59 @@ fn dispatch(
             let params: Params = serde_json::from_value(request.params.clone())
                 .map_err(|error| format!("invalid file.write_binary request: {error}"))?;
             write_binary_file(Path::new(&params.path), &params.hex)
+        }
+        "file.save_binary_as" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Params {
+                suggested_name: String,
+                source_path: String,
+                #[serde(default)]
+                hex: Option<String>,
+            }
+            let params: Params = serde_json::from_value(request.params.clone())
+                .map_err(|error| format!("invalid file.save_binary_as request: {error}"))?;
+
+            let bytes = if let Some(hex) = params.hex.as_deref() {
+                parse_hex_payload(hex)?
+            } else {
+                let source = Path::new(&params.source_path);
+                let metadata = fs::metadata(source)
+                    .map_err(|error| format!("cannot inspect {}: {error}", path_text(source)))?;
+                if !metadata.is_file() {
+                    return Err("binary source path is not a regular file".to_string());
+                }
+                if metadata.len() > MAX_FILE_BYTES {
+                    return Err("binary source exceeds the Editor 8 MiB limit".to_string());
+                }
+                fs::read(source)
+                    .map_err(|error| format!("cannot read {}: {error}", path_text(source)))?
+            };
+
+            let result = host_call(
+                "file.save",
+                json!({
+                    "suggestedName": params.suggested_name,
+                    "content": ""
+                }),
+            )?;
+            if result.get("saved") == Some(&Value::Bool(false)) {
+                return Ok(result);
+            }
+            let path = result
+                .get("path")
+                .and_then(Value::as_str)
+                .ok_or_else(|| "host file.save did not return a path".to_string())?;
+            fs::write(path, &bytes)
+                .map_err(|error| format!("cannot save {}: {error}", path))?;
+
+            Ok(json!({
+                "saved": true,
+                "path": path,
+                "name": display_name(Path::new(path)),
+                "encoding": "Binary",
+                "size": bytes.len()
+            }))
         }
         "file.save_as" => {
             #[derive(Deserialize)]
@@ -670,6 +727,13 @@ mod tests {
         write_binary_file(&path, "4D5A9000").unwrap();
         assert_eq!(fs::read(&path).unwrap(), &[0x4D, 0x5A, 0x90, 0x00]);
         let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn parses_binary_hex_payload() {
+        assert_eq!(parse_hex_payload("4D5A9000").unwrap(), &[0x4D, 0x5A, 0x90, 0x00]);
+        assert!(parse_hex_payload("4D5").is_err());
+        assert!(parse_hex_payload("GG").is_err());
     }
 
     #[test]
