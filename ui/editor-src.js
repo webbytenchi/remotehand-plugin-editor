@@ -936,6 +936,23 @@ import {languages} from "@codemirror/language-data";
     return true;
   }
 
+  async function loadBinaryPreview(tab) {
+    const result = await request("file.read", {path:tab.path, allowBinary:true});
+    tab.content = result.content || "";
+    tab.savedContent = tab.content;
+    tab.dirty = false;
+    tab.recovered = false;
+    tab.readOnly = true;
+    tab.hexEditable = false;
+    tab.binarySize = Number(result.size) || 0;
+    tab.previewTruncated = Boolean(result.previewTruncated);
+    tab.encoding = "Binary";
+    tab.cursor = 0;
+    tab.cmState = null;
+    render();
+    await persistNow();
+  }
+
   async function enableHexEditing() {
     const tab = activeTab();
     if (!tab || !tab.binary || tab.hexEditable || !tab.path) return;
@@ -959,7 +976,43 @@ import {languages} from "@codemirror/language-data";
       render();
       await persistNow();
     } catch (error) {
+      hexEditToggle.checked = false;
       await messageModal("Could not enable hex editing", String(error));
+    }
+  }
+
+  async function disableHexEditing() {
+    const tab = activeTab();
+    if (!tab || !tab.binary || !tab.hexEditable || !tab.path) return;
+
+    if (tab.id === activeId) saveActiveEditorState();
+
+    if (tab.dirty) {
+      const choice = await choiceModal(
+        "Leave Hex Editor?",
+        "“" + tab.name + "” has unsaved binary changes.",
+        [
+          {id:"save", label:"Save", primary:true},
+          {id:"discard", label:"Discard", danger:true},
+          {id:"cancel", label:"Cancel"}
+        ]
+      );
+
+      if (choice === "cancel" || choice === null) {
+        hexEditToggle.checked = true;
+        return;
+      }
+      if (choice === "save" && !(await saveTab(tab))) {
+        hexEditToggle.checked = true;
+        return;
+      }
+    }
+
+    try {
+      await loadBinaryPreview(tab);
+    } catch (error) {
+      hexEditToggle.checked = true;
+      await messageModal("Could not return to binary preview", String(error));
     }
   }
 
@@ -1066,15 +1119,35 @@ import {languages} from "@codemirror/language-data";
 
   async function saveAsTab(tab = activeTab()) {
     if (!tab || nativeDialogPending) return false;
-    if (tab.binary) {
-      await messageModal("Binary Save As", "Binary Save As is not available yet. Use Save to write hex edits back to the original file.");
-      return false;
-    }
     if (tab.id === activeId) saveActiveEditorState();
 
     nativeDialogPending = true;
     try {
       const suggested = tab.path ? tab.name : (tab.name.startsWith("Untitled ") ? "untitled.txt" : tab.name);
+
+      if (tab.binary) {
+        const params = {
+          suggestedName:suggested,
+          sourcePath:tab.path
+        };
+        if (tab.hexEditable) {
+          params.hex = hexPayloadFromDump(tab.content, tab.binarySize);
+        }
+
+        const result = await request("file.save_binary_as", params);
+        if (!result || !result.saved) return false;
+
+        tab.path = result.path;
+        tab.name = basename(result.path);
+        tab.savedContent = tab.content;
+        tab.dirty = false;
+        tab.recovered = false;
+        tab.encoding = "Binary";
+        tab.binarySize = Number(result.size) || tab.binarySize;
+        render();
+        return true;
+      }
+
       const saveAsContent = tab.bom ? "\uFEFF" + tab.content : tab.content;
       const result = await request("file.save_as", {suggestedName:suggested, content:saveAsContent});
       if (!result || !result.saved) return false;
@@ -1349,7 +1422,10 @@ import {languages} from "@codemirror/language-data";
   document.getElementById("openBtn").addEventListener("click", openFile);
   saveBtn.addEventListener("click", () => saveTab());
   saveAsBtn.addEventListener("click", () => saveAsTab());
-  hexEditBtn.addEventListener("click", () => void enableHexEditing());
+  hexEditToggle.addEventListener("change", () => {
+    if (hexEditToggle.checked) void enableHexEditing();
+    else void disableHexEditing();
+  });
   document.getElementById("findBtn").addEventListener("click", () => openFind(false));
   document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
@@ -1366,6 +1442,12 @@ import {languages} from "@codemirror/language-data";
   lineNumbersToggle.addEventListener("change", () => {
     lineNumbers = lineNumbersToggle.checked;
     applyLineNumbersState();
+    schedulePersist();
+  });
+
+  autocompleteToggle.addEventListener("change", () => {
+    autocompleteEnabled = autocompleteToggle.checked;
+    if (!autocompleteEnabled) closeCompletion(view);
     schedulePersist();
   });
 
@@ -1422,40 +1504,50 @@ import {languages} from "@codemirror/language-data";
   });
 
   window.addEventListener("keydown", event => {
-    const target = event.target;
-    const inEditor = target instanceof Node && editorHost.contains(target);
-    if (inEditor) return;
-
     const key = event.key.toLowerCase();
-    if (event.ctrlKey && key === "tab") {
+    const mod = (event.ctrlKey || event.metaKey) && !event.altKey;
+
+    if (mod && key === "tab") {
       event.preventDefault();
+      event.stopPropagation();
       switchTab(event.shiftKey ? -1 : 1);
-    } else if (event.ctrlKey && !event.shiftKey && key === "w") {
+    } else if (mod && event.shiftKey && key === "s") {
       event.preventDefault();
-      void closeTab(activeId);
-    } else if (event.ctrlKey && !event.shiftKey && key === "n") {
-      event.preventDefault();
-      newDocument();
-    } else if (event.ctrlKey && !event.shiftKey && key === "o") {
-      event.preventDefault();
-      void openFile();
-    } else if (event.ctrlKey && !event.shiftKey && key === "s") {
-      event.preventDefault();
-      void saveTab();
-    } else if (event.ctrlKey && event.shiftKey && key === "s") {
-      event.preventDefault();
+      event.stopPropagation();
       void saveAsTab();
-    } else if (event.ctrlKey && !event.shiftKey && key === "f") {
+    } else if (mod && !event.shiftKey && key === "s") {
       event.preventDefault();
+      event.stopPropagation();
+      void saveTab();
+    } else if (mod && !event.shiftKey && key === "w") {
+      event.preventDefault();
+      event.stopPropagation();
+      void closeTab(activeId);
+    } else if (mod && !event.shiftKey && key === "n") {
+      event.preventDefault();
+      event.stopPropagation();
+      newDocument();
+    } else if (mod && !event.shiftKey && key === "o") {
+      event.preventDefault();
+      event.stopPropagation();
+      void openFile();
+    } else if (mod && !event.shiftKey && key === "f") {
+      event.preventDefault();
+      event.stopPropagation();
       openFind(false);
-    } else if (event.ctrlKey && !event.shiftKey && key === "h") {
+    } else if (mod && !event.shiftKey && key === "h") {
       event.preventDefault();
+      event.stopPropagation();
       openFind(true);
+    } else if (mod && key === " " && !autocompleteEnabled) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCompletion(view);
     } else if (event.key === "Escape" && !findbar.hidden) {
       event.preventDefault();
       closeFind(true);
     }
-  });
+  }, true);
 
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") void persistNow();
