@@ -1,5 +1,5 @@
 import {EditorView, basicSetup} from "codemirror";
-import {EditorState, Compartment, Prec} from "@codemirror/state";
+import {EditorState, Compartment, Prec, Annotation, Transaction} from "@codemirror/state";
 import {keymap} from "@codemirror/view";
 import {HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
@@ -14,6 +14,9 @@ import {languages} from "@codemirror/language-data";
   const tabsNext = document.getElementById("tabsNext");
   const editorHost = document.getElementById("editorHost");
   const empty = document.getElementById("empty");
+  const saveBtn = document.getElementById("saveBtn");
+  const saveAsBtn = document.getElementById("saveAsBtn");
+  const hexEditBtn = document.getElementById("hexEditBtn");
   const wrapTextToggle = document.getElementById("wrapText");
   const lineNumbersToggle = document.getElementById("lineNumbers");
   const position = document.getElementById("position");
@@ -36,6 +39,8 @@ import {languages} from "@codemirror/language-data";
 
   const wrapCompartment = new Compartment();
   const languageCompartment = new Compartment();
+  const binaryGuardCompartment = new Compartment();
+  const hexEditAnnotation = Annotation.define();
 
   const remotehandHighlightStyle = HighlightStyle.define([
     {tag:[tags.keyword, tags.operatorKeyword], color:"var(--remotehand-accent-text,#7fb4e8)", fontWeight:"600"},
@@ -113,6 +118,118 @@ import {languages} from "@codemirror/language-data";
     return view.state.selection.main;
   }
 
+  function hexByteStart(byteIndex) {
+    return 10 + byteIndex * 3 + (byteIndex >= 8 ? 1 : 0);
+  }
+
+  function hexNibbleAt(state, position) {
+    if (position < 0 || position > state.doc.length) return null;
+    const line = state.doc.lineAt(Math.min(position, state.doc.length));
+    const column = position - line.from;
+
+    for (let byteIndex = 0; byteIndex < 16; byteIndex++) {
+      const start = hexByteStart(byteIndex);
+      const pair = line.text.slice(start, start + 2);
+      if (!/^[0-9A-F]{2}$/i.test(pair)) continue;
+      if (column === start || column === start + 1) {
+        return {
+          line,
+          byteIndex,
+          nibble:column - start,
+          position:line.from + column
+        };
+      }
+    }
+    return null;
+  }
+
+  function nextHexNibblePosition(state, position, direction) {
+    let cursor = position + direction;
+    while (cursor >= 0 && cursor <= state.doc.length) {
+      if (hexNibbleAt(state, cursor)) return cursor;
+      cursor += direction;
+    }
+    return position;
+  }
+
+  function hexPayloadFromDump(content, expectedBytes) {
+    const pairs = [];
+    for (const line of String(content || "").split("\n")) {
+      if (!/^[0-9A-Fa-f]{8}\s\s/.test(line)) continue;
+      for (let byteIndex = 0; byteIndex < 16; byteIndex++) {
+        const start = hexByteStart(byteIndex);
+        const pair = line.slice(start, start + 2);
+        if (/^[0-9A-Fa-f]{2}$/.test(pair)) pairs.push(pair.toUpperCase());
+      }
+    }
+
+    if (Number.isFinite(Number(expectedBytes)) && pairs.length !== Number(expectedBytes)) {
+      throw new Error(
+        "Hex editor byte count changed unexpectedly (" + pairs.length +
+        " bytes, expected " + Number(expectedBytes) + ")."
+      );
+    }
+    return pairs.join("");
+  }
+
+  function binaryGuardFor(tab) {
+    if (!tab.hexEditable) return [];
+    return EditorState.transactionFilter.of(transaction => {
+      if (!transaction.docChanged) return transaction;
+      if (transaction.annotation(hexEditAnnotation)) return transaction;
+      const userEvent = transaction.annotation(Transaction.userEvent) || "";
+      if (userEvent.startsWith("undo") || userEvent.startsWith("redo")) return transaction;
+      return [];
+    });
+  }
+
+  function handleHexEditorKeydown(event) {
+    const tab = activeTab();
+    if (!tab || !tab.binary || !tab.hexEditable) return;
+
+    if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+    const selection = currentSelection();
+    if (!selection.empty) return;
+
+    if (/^[0-9a-fA-F]$/.test(event.key)) {
+      const cell = hexNibbleAt(view.state, selection.head);
+      if (!cell) return;
+
+      event.preventDefault();
+      const key = event.key.toUpperCase();
+      const pairStart = cell.line.from + hexByteStart(cell.byteIndex);
+      const oldPair = view.state.doc.sliceString(pairStart, pairStart + 2);
+      const nextPair = cell.nibble === 0 ? key + oldPair[1] : oldPair[0] + key;
+      const byteValue = Number.parseInt(nextPair, 16);
+      const asciiPosition = cell.line.from + 61 + cell.byteIndex;
+      const asciiChar = byteValue >= 0x20 && byteValue <= 0x7e
+        ? String.fromCharCode(byteValue)
+        : ".";
+      const nextPosition = nextHexNibblePosition(view.state, cell.position, 1);
+
+      view.dispatch({
+        changes:[
+          {from:cell.position, to:cell.position + 1, insert:key},
+          {from:asciiPosition, to:asciiPosition + 1, insert:asciiChar}
+        ],
+        selection:{anchor:nextPosition},
+        annotations:hexEditAnnotation.of(true),
+        scrollIntoView:true
+      });
+      return;
+    }
+
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      const direction = event.key === "ArrowRight" ? 1 : -1;
+      const target = nextHexNibblePosition(view.state, selection.head, direction);
+      if (target !== selection.head) {
+        event.preventDefault();
+        view.dispatch({selection:{anchor:target}, scrollIntoView:true});
+      }
+    }
+  }
+
   function customKeymap() {
     return Prec.highest(keymap.of([
       {
@@ -181,6 +298,7 @@ import {languages} from "@codemirror/language-data";
         EditorView.clipboardInputFilter.of(normalizePastedText),
         wrapCompartment.of(wrapText ? EditorView.lineWrapping : []),
         languageCompartment.of([]),
+        binaryGuardCompartment.of(binaryGuardFor(tab)),
         EditorState.readOnly.of(Boolean(tab.readOnly)),
         EditorView.editable.of(!tab.readOnly),
         customKeymap(),
@@ -219,10 +337,10 @@ import {languages} from "@codemirror/language-data";
       tab.content = update.state.doc.toString();
       tab.dirty = tab.content !== (typeof tab.savedContent === "string" ? tab.savedContent : "");
       if (!tab.dirty) tab.recovered = false;
-      tab.eol = detectEol(tab.content);
+      if (!tab.binary) tab.eol = detectEol(tab.content);
       renderTabs();
       updateSaveState();
-      eol.textContent = tab.eol;
+      eol.textContent = tab.binary ? "—" : tab.eol;
     }
 
     updatePosition();
@@ -359,6 +477,8 @@ import {languages} from "@codemirror/language-data";
         bom:Boolean(tab.bom),
         binary:Boolean(tab.binary),
         readOnly:Boolean(tab.readOnly),
+        hexEditable:Boolean(tab.hexEditable),
+        binarySize:Number.isFinite(Number(tab.binarySize)) ? Number(tab.binarySize) : null,
         previewTruncated:Boolean(tab.previewTruncated),
         eol:tab.eol || detectEol(tab.content),
         cursor:Number.isFinite(tab.cursor) ? tab.cursor : 0
@@ -416,6 +536,8 @@ import {languages} from "@codemirror/language-data";
       bom:Boolean(raw.bom),
       binary:Boolean(raw.binary),
       readOnly:Boolean(raw.readOnly),
+      hexEditable:Boolean(raw.hexEditable),
+      binarySize:Number.isFinite(Number(raw.binarySize)) ? Number(raw.binarySize) : null,
       previewTruncated:Boolean(raw.previewTruncated),
       eol:raw.binary ? "—" : (raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || ""))),
       cursor:Math.max(0, Number(raw.cursor) || 0),
@@ -485,8 +607,15 @@ import {languages} from "@codemirror/language-data";
     encoding.textContent = tab.encoding || "UTF-8";
     eol.textContent = tab.binary ? "—" : (tab.eol || detectEol(tab.content));
     language.textContent = tab.binary
-      ? (tab.previewTruncated ? "Binary preview (truncated)" : "Binary preview")
+      ? (tab.hexEditable
+          ? "Hex editor"
+          : (tab.previewTruncated ? "Binary preview (truncated)" : "Binary preview"))
       : languageInfo(tab.name);
+
+    hexEditBtn.hidden = !tab.binary || tab.hexEditable;
+    saveBtn.disabled = Boolean(tab.binary && !tab.hexEditable);
+    saveAsBtn.disabled = Boolean(tab.binary);
+    wrapTextToggle.disabled = Boolean(tab.binary);
     updateSaveState();
     updatePosition();
     void applyLanguageForActiveTab();
@@ -762,6 +891,8 @@ import {languages} from "@codemirror/language-data";
       bom:Boolean(result.bom),
       binary:Boolean(result.binary),
       readOnly:Boolean(result.readOnly),
+      hexEditable:Boolean(result.hexEditable),
+      binarySize:Number.isFinite(Number(result.size)) ? Number(result.size) : null,
       previewTruncated:Boolean(result.previewTruncated),
       eol:result.binary ? "—" : (result.eol || detectEol(result.content || "")),
       cursor:0,
@@ -772,6 +903,33 @@ import {languages} from "@codemirror/language-data";
     activeId = tab.id;
     render();
     return true;
+  }
+
+  async function enableHexEditing() {
+    const tab = activeTab();
+    if (!tab || !tab.binary || tab.hexEditable || !tab.path) return;
+
+    try {
+      const result = await request("file.read", {
+        path:tab.path,
+        allowBinary:true,
+        editBinary:true
+      });
+      tab.content = result.content || "";
+      tab.savedContent = tab.content;
+      tab.dirty = false;
+      tab.readOnly = false;
+      tab.hexEditable = true;
+      tab.binarySize = Number(result.size) || 0;
+      tab.previewTruncated = false;
+      tab.encoding = "Binary";
+      tab.cursor = 10;
+      tab.cmState = null;
+      render();
+      await persistNow();
+    } catch (error) {
+      await messageModal("Could not enable hex editing", String(error));
+    }
   }
 
   async function resolveOpenResult(result) {
@@ -835,14 +993,28 @@ import {languages} from "@codemirror/language-data";
 
   async function saveTab(tab = activeTab()) {
     if (!tab) return false;
-    if (tab.readOnly || tab.binary) {
-      await messageModal("Read-only preview", "Binary previews cannot be edited or saved.");
+    if (tab.binary && !tab.hexEditable) {
+      await messageModal("Read-only preview", "Choose Edit Hex before modifying or saving a binary file.");
       return false;
     }
     if (tab.id === activeId) saveActiveEditorState();
     if (!tab.path) return saveAsTab(tab);
 
     try {
+      if (tab.binary) {
+        const hex = hexPayloadFromDump(tab.content, tab.binarySize);
+        const result = await request("file.write_binary", {path:tab.path, hex});
+        tab.savedContent = tab.content;
+        tab.dirty = false;
+        tab.recovered = false;
+        tab.encoding = result.encoding || "Binary";
+        tab.binarySize = Number(result.size) || tab.binarySize;
+        renderTabs();
+        updateSaveState();
+        await persistNow();
+        return true;
+      }
+
       const result = await request("file.write", {path:tab.path, content:tab.content, bom:Boolean(tab.bom)});
       tab.name = result.name || basename(tab.path);
       tab.savedContent = tab.content;
@@ -863,8 +1035,8 @@ import {languages} from "@codemirror/language-data";
 
   async function saveAsTab(tab = activeTab()) {
     if (!tab || nativeDialogPending) return false;
-    if (tab.readOnly || tab.binary) {
-      await messageModal("Read-only preview", "Binary previews cannot be edited or saved.");
+    if (tab.binary) {
+      await messageModal("Binary Save As", "Binary Save As is not available yet. Use Save to write hex edits back to the original file.");
       return false;
     }
     if (tab.id === activeId) saveActiveEditorState();
@@ -1144,8 +1316,9 @@ import {languages} from "@codemirror/language-data";
 
   document.getElementById("newBtn").addEventListener("click", () => newDocument());
   document.getElementById("openBtn").addEventListener("click", openFile);
-  document.getElementById("saveBtn").addEventListener("click", () => saveTab());
-  document.getElementById("saveAsBtn").addEventListener("click", () => saveAsTab());
+  saveBtn.addEventListener("click", () => saveTab());
+  saveAsBtn.addEventListener("click", () => saveAsTab());
+  hexEditBtn.addEventListener("click", () => void enableHexEditing());
   document.getElementById("findBtn").addEventListener("click", () => openFind(false));
   document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
@@ -1188,6 +1361,22 @@ import {languages} from "@codemirror/language-data";
     if (event.target !== tabsHost) return;
     event.preventDefault();
     newDocument();
+  });
+
+  editorHost.addEventListener("keydown", handleHexEditorKeydown, true);
+
+  editorHost.addEventListener("mouseup", () => {
+    const tab = activeTab();
+    if (!tab || !tab.hexEditable) return;
+    const selection = currentSelection();
+    if (!selection.empty || hexNibbleAt(view.state, selection.head)) return;
+
+    const forward = nextHexNibblePosition(view.state, selection.head, 1);
+    const backward = nextHexNibblePosition(view.state, selection.head, -1);
+    const target = Math.abs(forward - selection.head) <= Math.abs(selection.head - backward)
+      ? forward
+      : backward;
+    if (target !== selection.head) view.dispatch({selection:{anchor:target}});
   });
 
   document.addEventListener("mousedown", event => {
