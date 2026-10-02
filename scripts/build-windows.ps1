@@ -53,9 +53,24 @@ Copy-Item -Force (Join-Path $repo "plugin.json") (Join-Path $packageDir "plugin.
 Copy-Item -Force (Join-Path $repo "README.md") (Join-Path $packageDir "README.md")
 Copy-Item -Force (Join-Path $repo "CHANGELOG.md") (Join-Path $packageDir "CHANGELOG.md")
 Copy-Item -Force (Join-Path $repo "LICENSE") (Join-Path $packageDir "LICENSE")
-Copy-Item -Force (Join-Path $repo "ui\index.html") (Join-Path $packageUiDir "index.html")
-Copy-Item -Force (Join-Path $repo "ui\editor.css") (Join-Path $packageUiDir "editor.css")
-Copy-Item -Force (Join-Path $repo "ui\editor.js") (Join-Path $packageUiDir "editor.js")
+
+# RemoteHand plugin panels load their entry document from a virtual source where
+# sibling relative assets are not guaranteed to resolve. Keep the development
+# sources split cleanly, but package one self-contained HTML document.
+$indexTemplate = Get-Content (Join-Path $repo "ui\index.html") -Raw
+$editorCss = Get-Content (Join-Path $repo "ui\editor.css") -Raw
+$editorJs = Get-Content (Join-Path $repo "ui\editor.js") -Raw
+
+$packagedIndex = $indexTemplate.Replace(
+    '<link rel="stylesheet" href="./editor.css">',
+    "<style>`r`n$editorCss`r`n</style>"
+).Replace(
+    '<script src="./editor.js"></script>',
+    "<script>`r`n$editorJs`r`n</script>"
+)
+
+Set-Content -Path (Join-Path $packageUiDir "index.html") -Value $packagedIndex -Encoding utf8
+
 Copy-Item -Force (Join-Path $repo "assets\*") $packageAssetsDir
 Copy-Item -Force $sourceExe (Join-Path $packageBinDir "remotehand-editor.exe")
 
