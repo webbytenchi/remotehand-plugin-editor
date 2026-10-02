@@ -1,6 +1,8 @@
 import {EditorView, basicSetup} from "codemirror";
 import {EditorState, Compartment, Prec} from "@codemirror/state";
 import {keymap} from "@codemirror/view";
+import {HighlightStyle, syntaxHighlighting} from "@codemirror/language";
+import {tags} from "@lezer/highlight";
 import {languages} from "@codemirror/language-data";
 
 (() => {
@@ -13,6 +15,7 @@ import {languages} from "@codemirror/language-data";
   const editorHost = document.getElementById("editorHost");
   const empty = document.getElementById("empty");
   const wrapTextToggle = document.getElementById("wrapText");
+  const lineNumbersToggle = document.getElementById("lineNumbers");
   const position = document.getElementById("position");
   const saveState = document.getElementById("saveState");
   const encoding = document.getElementById("encoding");
@@ -34,10 +37,28 @@ import {languages} from "@codemirror/language-data";
   const wrapCompartment = new Compartment();
   const languageCompartment = new Compartment();
 
+  const remotehandHighlightStyle = HighlightStyle.define([
+    {tag:[tags.keyword, tags.operatorKeyword], color:"var(--remotehand-accent-text,#7fb4e8)", fontWeight:"600"},
+    {tag:[tags.string, tags.special(tags.string)], color:"var(--remotehand-success-text,#a8d080)"},
+    {tag:[tags.number, tags.bool, tags.null], color:"var(--remotehand-warning-text,#d5a76f)"},
+    {tag:[tags.comment, tags.docComment], color:"var(--remotehand-muted-text,#718096)", fontStyle:"italic"},
+    {tag:[tags.function(tags.variableName), tags.definition(tags.variableName)], color:"var(--remotehand-accent-text,#8fc1ef)"},
+    {tag:[tags.typeName, tags.className], color:"var(--remotehand-warning-text,#dfbd70)"},
+    {tag:tags.propertyName, color:"var(--remotehand-terminal-foreground,#c8d7e8)"},
+    {tag:tags.regexp, color:"var(--remotehand-success-text,#a8d080)"},
+    {tag:[tags.heading, tags.strong], color:"var(--remotehand-accent-text,#8fc1ef)", fontWeight:"700"},
+    {tag:[tags.link, tags.url], color:"var(--remotehand-accent-text,#7fb4e8)", textDecoration:"underline"},
+    {tag:tags.meta, color:"var(--remotehand-muted-text,#9aa8b8)"}
+  ]);
+
+  const normalizePastedText = text => String(text || "")
+    .replace(/[\u00a0\u202f]/g, " ");
+
   let tabs = [];
   let activeId = null;
   let untitledCounter = 1;
   let wrapText = false;
+  let lineNumbers = true;
   let persistTimer = null;
   let persistInFlight = Promise.resolve();
   let modalResolve = null;
@@ -164,6 +185,8 @@ import {languages} from "@codemirror/language-data";
       selection:{anchor:cursor},
       extensions:[
         basicSetup,
+        syntaxHighlighting(remotehandHighlightStyle),
+        EditorView.clipboardInputFilter.of(normalizePastedText),
         wrapCompartment.of(wrapText ? EditorView.lineWrapping : []),
         languageCompartment.of([]),
         customKeymap(),
@@ -181,6 +204,8 @@ import {languages} from "@codemirror/language-data";
       doc:"",
       extensions:[
         basicSetup,
+        syntaxHighlighting(remotehandHighlightStyle),
+        EditorView.clipboardInputFilter.of(normalizePastedText),
         wrapCompartment.of([]),
         languageCompartment.of([]),
         customKeymap()
@@ -228,6 +253,11 @@ import {languages} from "@codemirror/language-data";
     });
     const tab = activeTab();
     if (tab) tab.cmState = view.state;
+  }
+
+  function applyLineNumbersState() {
+    lineNumbersToggle.checked = lineNumbers;
+    editorHost.classList.toggle("hide-line-numbers", !lineNumbers);
   }
 
   function matchingLanguage(name) {
@@ -322,6 +352,7 @@ import {languages} from "@codemirror/language-data";
       activeId,
       untitledCounter,
       wrapText,
+      lineNumbers,
       tabs:tabs.map(tab => ({
         id:tab.id,
         name:tab.name,
@@ -368,7 +399,10 @@ import {languages} from "@codemirror/language-data";
     }
 
     wrapText = Boolean(stored.wrapText);
+    lineNumbers = stored.lineNumbers !== false;
     wrapTextToggle.checked = wrapText;
+    lineNumbersToggle.checked = lineNumbers;
+    applyLineNumbersState();
     untitledCounter = Math.max(1, Number(stored.untitledCounter) || 1);
 
     tabs = stored.tabs.map(raw => ({
@@ -440,6 +474,7 @@ import {languages} from "@codemirror/language-data";
     }
 
     if (wrapText !== wrapTextToggle.checked) wrapTextToggle.checked = wrapText;
+    applyLineNumbersState();
     view.dispatch({effects:wrapCompartment.reconfigure(wrapText ? EditorView.lineWrapping : [])});
     tab.cmState = view.state;
 
@@ -1076,6 +1111,12 @@ import {languages} from "@codemirror/language-data";
   wrapTextToggle.addEventListener("change", () => {
     wrapText = wrapTextToggle.checked;
     applyWrapTextState();
+    schedulePersist();
+  });
+
+  lineNumbersToggle.addEventListener("change", () => {
+    lineNumbers = lineNumbersToggle.checked;
+    applyLineNumbersState();
     schedulePersist();
   });
 
