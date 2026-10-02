@@ -396,13 +396,7 @@ fn dispatch(
                 "file.save",
                 json!({
                     "suggestedName": params.suggested_name,
-                    "content": params.content,
-                    "filters": [
-                        {
-                            "name": "All files",
-                            "extensions": ["*"]
-                        }
-                    ]
+                    "content": params.content
                 }),
             )
         }
