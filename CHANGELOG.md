@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.1] - 2026-10-03
+
+### Changed
+
+- Refreshed the RemoteHand sidebar icon with a cleaner editor/text-lines mark that reads more clearly at compact sidebar sizes.
+
+### Compatibility
+
+- RemoteHand Plugin API remains **v1**.
+- Editor behavior, file formats, session data, and CodeMirror integration are unchanged.
+
+### Verification
+
+- Manual RemoteHand acceptance confirmed the updated sidebar icon renders cleanly in the normal application sidebar.
+
 ## [0.4.0] - 2026-10-02
 
 ### Changed
