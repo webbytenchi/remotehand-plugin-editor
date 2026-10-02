@@ -659,9 +659,33 @@ import {languages} from "@codemirror/language-data";
       position.textContent = "Ln 1, Col 1";
       return;
     }
+
     const head = editorCursor();
-    const lineInfo = view.state.doc.lineAt(head);
     tab.cursor = head;
+
+    if (tab.binary) {
+      const ascii = asciiCellAt(view.state, head);
+      const hex = hexNibbleAt(view.state, head);
+      const cell = ascii || hex;
+
+      if (cell) {
+        const offset = ((cell.line.number - 1) * 16) + cell.byteIndex;
+        const offsetText = "0x" + offset.toString(16).toUpperCase().padStart(8, "0");
+
+        if (ascii) {
+          position.textContent = "Offset " + offsetText + " · ASCII";
+        } else {
+          position.textContent = "Offset " + offsetText + " · " +
+            (hex.nibble === 0 ? "High nibble" : "Low nibble");
+        }
+        return;
+      }
+
+      position.textContent = "Binary";
+      return;
+    }
+
+    const lineInfo = view.state.doc.lineAt(head);
     position.textContent = "Ln " + lineInfo.number + ", Col " + (head - lineInfo.from + 1);
   }
 
