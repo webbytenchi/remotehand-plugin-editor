@@ -270,6 +270,23 @@ import {languages} from "@codemirror/language-data";
     if (!selection.empty) return;
 
     const asciiCell = asciiCellAt(view.state, selection.head);
+    const hexCell = hexNibbleAt(view.state, selection.head);
+
+    if (event.key === "Tab") {
+      if (hexCell) {
+        event.preventDefault();
+        const target = hexCell.line.from + 61 + hexCell.byteIndex;
+        view.dispatch({selection:{anchor:target}, scrollIntoView:true});
+        return;
+      }
+      if (asciiCell) {
+        event.preventDefault();
+        const target = asciiCell.hexPosition;
+        view.dispatch({selection:{anchor:target}, scrollIntoView:true});
+        return;
+      }
+    }
+
     if (asciiCell && event.key.length === 1 && /^[\x20-\x7E]$/.test(event.key)) {
       event.preventDefault();
       const code = event.key.charCodeAt(0);
@@ -1484,8 +1501,12 @@ import {languages} from "@codemirror/language-data";
     const selection = currentSelection();
     let target;
 
+    const tab = activeTab();
     if (direction > 0) {
-      target = matches.find(match => matchFrom(match) >= selection.to);
+      target = matches.find(match => {
+        const from = matchFrom(match);
+        return tab && tab.binary ? from > selection.from : from >= selection.to;
+      });
       if (target === undefined) target = matches[0];
     } else {
       for (let i = matches.length - 1; i >= 0; i--) {
@@ -1499,7 +1520,6 @@ import {languages} from "@codemirror/language-data";
 
     const from = matchFrom(target);
     const to = matchTo(target, query.length);
-    const tab = activeTab();
 
     if (tab && tab.binary && typeof target !== "number") {
       view.dispatch({
