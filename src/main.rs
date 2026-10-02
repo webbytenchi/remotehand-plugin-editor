@@ -175,30 +175,58 @@ fn detect_eol(content: &str) -> &'static str {
     }
 }
 
-fn is_supported_text_path(path: &Path) -> bool {
-    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
-        return true;
-    };
-    let extension = extension.to_ascii_lowercase();
-    matches!(
-        extension.as_str(),
-        "txt" | "md" | "markdown" | "log" | "json" | "jsonc" | "yaml" | "yml" |
-        "toml" | "ini" | "cfg" | "conf" | "xml" | "html" | "htm" | "css" | "scss" |
-        "sass" | "less" | "js" | "jsx" | "mjs" | "cjs" | "ts" | "tsx" | "py" |
-        "rs" | "go" | "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "cs" | "java" |
-        "kt" | "kts" | "sh" | "bash" | "zsh" | "fish" | "ps1" | "bat" | "cmd" |
-        "sql" | "csv" | "tsv" | "env" | "gitignore" | "gitattributes" | "editorconfig"
-    )
+const MAX_BINARY_PREVIEW_BYTES: usize = 128 * 1024;
+
+fn binary_preview(bytes: &[u8]) -> String {
+    let shown = bytes.len().min(MAX_BINARY_PREVIEW_BYTES);
+    let mut output = String::new();
+
+    for (row, chunk) in bytes[..shown].chunks(16).enumerate() {
+        use std::fmt::Write as _;
+        let offset = row * 16;
+        let _ = write!(&mut output, "{offset:08X}  ");
+
+        for index in 0..16 {
+            if let Some(byte) = chunk.get(index) {
+                let _ = write!(&mut output, "{byte:02X} ");
+            } else {
+                output.push_str("   ");
+            }
+            if index == 7 {
+                output.push(' ');
+            }
+        }
+
+        output.push_str(" |");
+        for byte in chunk {
+            let ch = if byte.is_ascii_graphic() || *byte == b' ' {
+                char::from(*byte)
+            } else {
+                '.'
+            };
+            output.push(ch);
+        }
+        output.push_str("|\n");
+    }
+
+    if bytes.len() > shown {
+        use std::fmt::Write as _;
+        let _ = write!(
+            &mut output,
+            "\n... preview truncated: showing {} of {} bytes ...\n",
+            shown,
+            bytes.len()
+        );
+    }
+
+    output
 }
 
-fn read_text_file(path: &Path) -> Result<Value, String> {
+fn read_text_file(path: &Path, allow_binary: bool) -> Result<Value, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("cannot inspect {}: {error}", path_text(path)))?;
     if !metadata.is_file() {
         return Err("selected path is not a regular file".to_string());
-    }
-    if !is_supported_text_path(path) {
-        return Err("selected file is not a supported text/code type".to_string());
     }
     if metadata.len() > MAX_FILE_BYTES {
         return Err("file exceeds the Editor 8 MiB limit".to_string());
@@ -206,23 +234,50 @@ fn read_text_file(path: &Path) -> Result<Value, String> {
 
     let bytes = fs::read(path)
         .map_err(|error| format!("cannot read {}: {error}", path_text(path)))?;
-    if bytes.iter().take(8192).any(|byte| *byte == 0) {
-        return Err("binary files are not supported".to_string());
-    }
 
     const UTF8_BOM: &[u8; 3] = b"\xEF\xBB\xBF";
     let has_bom = bytes.starts_with(UTF8_BOM);
     let text_bytes = if has_bom { &bytes[UTF8_BOM.len()..] } else { &bytes[..] };
-    let content = String::from_utf8(text_bytes.to_vec())
-        .map_err(|_| "Editor currently supports UTF-8 text files only".to_string())?;
+
+    let has_nul = text_bytes.iter().take(8192).any(|byte| *byte == 0);
+    let decoded = if has_nul {
+        None
+    } else {
+        std::str::from_utf8(text_bytes).ok()
+    };
+
+    if let Some(content) = decoded {
+        return Ok(json!({
+            "path": path_text(path),
+            "name": display_name(path),
+            "content": content,
+            "encoding": "UTF-8",
+            "bom": has_bom,
+            "binary": false,
+            "eol": detect_eol(content)
+        }));
+    }
+
+    if !allow_binary {
+        return Ok(json!({
+            "path": path_text(path),
+            "name": display_name(path),
+            "binary": true,
+            "size": bytes.len()
+        }));
+    }
 
     Ok(json!({
         "path": path_text(path),
         "name": display_name(path),
-        "content": content,
-        "encoding": "UTF-8",
-        "bom": has_bom,
-        "eol": detect_eol(&content)
+        "content": binary_preview(&bytes),
+        "encoding": "Binary",
+        "bom": false,
+        "binary": true,
+        "readOnly": true,
+        "previewTruncated": bytes.len() > MAX_BINARY_PREVIEW_BYTES,
+        "size": bytes.len(),
+        "eol": "LF"
     }))
 }
 
@@ -291,21 +346,7 @@ fn dispatch(
             Ok(json!({ "stored": true }))
         }
         "file.open" => {
-            let result = host_call(
-                "file.open",
-                json!({
-                    "filters": [
-                        {
-                            "name": "Text and code",
-                            "extensions": [
-                                "txt", "md", "json", "yaml", "yml", "toml", "ini", "xml",
-                                "html", "htm", "css", "js", "ts", "jsx", "tsx", "py", "rs",
-                                "go", "c", "h", "cpp", "hpp", "cs", "java", "sh", "ps1", "log"
-                            ]
-                        }
-                    ]
-                }),
-            )?;
+            let result = host_call("file.open", json!({}))?;
             if result.get("opened") == Some(&Value::Bool(false)) {
                 return Ok(json!({ "opened": false }));
             }
@@ -313,16 +354,19 @@ fn dispatch(
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "host file.open did not return a path".to_string())?;
-            read_text_file(Path::new(path))
+            read_text_file(Path::new(path), false)
         },
         "file.read" => {
             #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
             struct Params {
                 path: String,
+                #[serde(default)]
+                allow_binary: bool,
             }
             let params: Params = serde_json::from_value(request.params.clone())
                 .map_err(|error| format!("invalid file.read request: {error}"))?;
-            read_text_file(Path::new(&params.path))
+            read_text_file(Path::new(&params.path), params.allow_binary)
         }
         "file.write" => {
             #[derive(Deserialize)]
@@ -355,8 +399,8 @@ fn dispatch(
                     "content": params.content,
                     "filters": [
                         {
-                            "name": "Text and code",
-                            "extensions": ["txt", "md", "json", "yaml", "toml", "html", "css", "js"]
+                            "name": "All files",
+                            "extensions": ["*"]
                         }
                     ]
                 }),
@@ -484,7 +528,7 @@ mod tests {
     #[test]
     fn reads_utf8_text() {
         let path = temp_file("utf8.txt", b"hello\nworld\n");
-        let result = read_text_file(&path).unwrap();
+        let result = read_text_file(&path, false).unwrap();
         assert_eq!(result["content"], "hello\nworld\n");
         assert_eq!(result["encoding"], "UTF-8");
         assert_eq!(result["bom"], false);
@@ -495,7 +539,7 @@ mod tests {
     #[test]
     fn reads_utf8_bom_without_exposing_it_as_text() {
         let path = temp_file("utf8-bom.py", b"\xEF\xBB\xBFprint(\"hello\")\n");
-        let result = read_text_file(&path).unwrap();
+        let result = read_text_file(&path, false).unwrap();
         assert_eq!(result["content"], "print(\"hello\")\n");
         assert_eq!(result["encoding"], "UTF-8");
         assert_eq!(result["bom"], true);
@@ -505,16 +549,36 @@ mod tests {
     #[test]
     fn rejects_binary_content() {
         let path = temp_file("binary.txt", &[1, 2, 0, 4]);
-        let error = read_text_file(&path).unwrap_err();
+        let error = read_text_file(&path, false).unwrap_err();
         assert!(error.contains("binary"));
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn rejects_unsupported_extension() {
-        let path = temp_file("program.exe", b"plain text");
-        let error = read_text_file(&path).unwrap_err();
-        assert!(error.contains("supported text/code"));
+    fn reads_text_regardless_of_extension() {
+        let path = temp_file("notes.unknownext", b"plain text\n");
+        let result = read_text_file(&path, false).unwrap();
+        assert_eq!(result["content"], "plain text\n");
+        assert_eq!(result["binary"], false);
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reports_binary_before_previewing_it() {
+        let path = temp_file("sample.bin", &[0x00, 0x01, 0x41, 0x42, 0xFF]);
+        let result = read_text_file(&path, false).unwrap();
+        assert_eq!(result["binary"], true);
+        assert!(result.get("content").is_none());
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn returns_read_only_hex_preview_for_binary() {
+        let path = temp_file("sample.bin", &[0x00, 0x01, 0x41, 0x42, 0xFF]);
+        let result = read_text_file(&path, true).unwrap();
+        assert_eq!(result["binary"], true);
+        assert_eq!(result["readOnly"], true);
+        assert!(result["content"].as_str().unwrap().contains("00 01 41 42 FF"));
         let _ = fs::remove_file(path);
     }
 
