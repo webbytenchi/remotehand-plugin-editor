@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.4.0] - 2026-10-02
+
+### Changed
+
+- Replaced the hand-built textarea/syntax-overlay editing engine with CodeMirror 6.
+- Split the UI into a small HTML shell, dedicated Editor CSS, and bundled JavaScript source.
+- Text files are accepted based on UTF-8 content rather than a fixed extension whitelist.
+- Language names, parsing, syntax highlighting, and available completion data now come from CodeMirror language support.
+
+### Added
+
+- Persistent **Wrap text** and **Line numbers** controls.
+- Contextual **Autocomplete** control for languages that provide completion data.
+- UTF-8 BOM detection and preservation without showing the BOM as an editable character.
+- PHP and broader CodeMirror language support.
+- Binary-file detection with an explicit read-only preview prompt.
+- Binary hex/ASCII preview with a dedicated **Hex editor** toggle.
+- Controlled hexadecimal nibble editing and printable ASCII-side editing with synchronized byte updates.
+- Hex/ASCII Tab switching, constrained byte-grid navigation, and binary byte-offset/nibble status.
+- Binary Find across visual row boundaries with mirrored Hex/ASCII match highlighting.
+- Binary Replace / Replace All with synchronized byte updates.
+- Binary Save and Save As support.
+
+### Fixed
+
+- Normal Editor shortcuts now continue to work while CodeMirror has focus.
+- Line-number gutter alignment.
+- Caret visibility and selection behavior formerly handled by custom overlays.
+- Horizontal/vertical editing behavior at long lines and blank lines.
+- Binary caret escape into offsets, separators, or trailing blank document space.
+- Binary Find Next/Previous progression.
+- ASCII editing continuation across 16-byte visual rows.
+
+### Safety
+
+- General file-size limit remains 8 MiB.
+- Editable Hex mode is limited to 512 KiB.
+- Read-only binary preview is capped at 128 KiB of displayed bytes.
+- Binary files open read-only by default and require explicitly enabling Hex Editor mode before editing.
+- Binary replacement currently requires equal-length printable ASCII text.
+
+### Verification
+
+- Manual Windows acceptance covered CodeMirror text editing, session restoration, line-number alignment, wrapping, syntax colors, PHP opening, UTF-8 BOM handling, binary preview, Hex/ASCII editing, binary Find/Replace, Hex navigation, and contextual status behavior.
+- Rust tests cover runtime/manifest version consistency, text/BOM handling, binary detection and preview, binary hex parsing/writing, session validation, and normal text writes.
 ## [0.3.1] - 2026-09-29
 
 ### Improved
