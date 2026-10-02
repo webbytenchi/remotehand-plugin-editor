@@ -1,215 +1,131 @@
 # RemoteHand Editor
 
-RemoteHand Editor is a lightweight programmer-focused text and code editor for RemoteHand.
+RemoteHand Editor is a lightweight programmer-focused text, code, and binary editor for RemoteHand.
 
-Version **0.3.1** builds on the v0.2.x foundation with native Windows Explorer drag/drop integration, F5 timestamp insertion, more accurate dirty-state behavior, improved caret/rendering behavior, and silent recovery of unsaved edits.
+Version **0.4.0** replaces the hand-built textarea/overlay editing engine with CodeMirror 6 while preserving RemoteHand-specific document, tab, recovery, file, drag/drop, and appearance behavior. It also adds content-based text-file opening, configurable editor display options, UTF-8 BOM preservation, and a safe binary preview / Hex Editor workflow.
 
 ## Requirements
 
-RemoteHand Editor uses RemoteHand Plugin API v1 host capabilities for:
+RemoteHand Editor uses RemoteHand Plugin API v1 host capabilities for plugin-scoped storage, host-owned native file dialogs, RemoteHand appearance data, and native Explorer file-path delivery.
 
-- plugin-scoped storage
-- host-owned native file open/save dialogs
-- RemoteHand appearance data for UI and terminal fonts/colors
-- native Explorer file-path delivery for drag/drop
+The Editor's standalone file/editing capabilities require **RemoteHand v1.2.17 or later**. Cross-plugin file opening, including File Manager's **Open in Editor** action, requires **RemoteHand v1.2.20 or later**. Native Windows Explorer file drops require a RemoteHand build with the generic native file-drop bridge.
 
-The Editor's standalone file/editing capabilities require **RemoteHand v1.2.17 or later**.
+## v0.4.0 features
 
-Cross-plugin file opening, including File Manager's **Open in Editor** action, requires **RemoteHand v1.2.20 or later**.
+### CodeMirror 6 editing core
 
-Native Windows Explorer file drops require a RemoteHand build with the generic native file-drop bridge.
-
-## v0.3.1 features
+CodeMirror 6 now owns caret and selection behavior, line rendering and numbers, scrolling, wrapping, undo/redo, syntax-aware language support, and completion data. RemoteHand Editor continues to own tabs, file I/O, recovery, dirty state, drag/drop integration, status surfaces, and RemoteHand-specific UI behavior.
 
 ### Documents and files
 
-- create multiple untitled scratch documents
-- open real local UTF-8 text/code files
+- multiple untitled scratch documents
+- open UTF-8 text files regardless of filename extension
 - Save and Save As
 - 8 MiB per-file safety limit
-- reject binary-looking files
-- preserve LF/CRLF status
-- remember open documents between RemoteHand sessions
-- open Windows Explorer files by dropping them on the tab strip
-- insert full native file paths at the current caret/selection by dropping Explorer files into the Editor body
-- multiple dropped file paths are inserted one per line
+- LF/CRLF status
+- UTF-8 BOM preservation without exposing the BOM as editable text
+- restored open documents and unsaved recovery state across RemoteHand sessions
+- Explorer drag/drop to open files on the tab strip
+- Explorer drag/drop into normal text documents to insert full native paths
 
-Named files are **not silently autosaved to disk**. Explicit Save writes the real file. While editing, Editor maintains a recovery snapshot so unsaved work can survive RemoteHand being closed.
+Named text files are **not silently autosaved to disk**. Explicit Save writes the real file.
 
-### Recovery
+### Binary preview and Hex Editor
 
-- untitled buffers survive a full RemoteHand restart
-- unsaved edits to named files survive a full RemoteHand restart
-- recovery is restored silently without a persistent recovery banner
-- closing RemoteHand or the Editor panel does not trigger unnecessary save prompts
-- explicitly closing unsaved content uses Save / Save As / Discard / Cancel as appropriate
-- recovery content that returns exactly to the disk state naturally clears the dirty/recovery condition
+When a selected file appears to be binary, Editor asks before opening it as a read-only binary preview.
 
-Recovery currently stores full document contents rather than incremental patches.
+- dedicated **Hex editor** toggle shown only for binary files
+- controlled editing of hexadecimal nibbles
+- editable printable ASCII column with mirrored hex updates
+- Tab switches between matching Hex and ASCII byte positions
+- Find works across visual row boundaries and highlights matching ASCII characters plus corresponding hex bytes
+- Replace / Replace All synchronize both representations and currently require equal-length printable ASCII replacements
+- constrained caret navigation keeps editing inside valid Hex/ASCII byte cells
+- editable Hex status shows byte offset plus High nibble, Low nibble, or ASCII
+- Save writes edited bytes back to the original file
+- Save As works for read-only previews and edited binary content
 
-### Tabs
+Editable Hex mode is limited to binaries of **512 KiB or smaller**. Larger binary files can still use read-only preview, subject to the general 8 MiB file limit. Read-only preview displays at most 128 KiB and reports when truncated.
 
-- multiple document tabs
-- drag-and-drop tab reordering
-- persisted tab order
-- active tab is automatically kept visible
-- compact previous/next controls when the tab strip overflows
-- untouched `Untitled` tabs close without a save prompt
-- modified untitled tabs retain normal save/discard protection
-- `Ctrl+Tab` — next tab
-- `Ctrl+Shift+Tab` — previous tab
-- `Ctrl+W` — close current tab
+### Tabs and shortcuts
 
-Tab navigation wraps from the last tab to the first and vice versa.
+- draggable tab reordering with persisted order
+- active-tab auto reveal and overflow controls
+- Ctrl+Tab / Ctrl+Shift+Tab tab navigation
+- Ctrl+W closes the current tab
+- Ctrl+S, Ctrl+Shift+S, Ctrl+O, Ctrl+N, Ctrl+F, and Ctrl+H work while CodeMirror has focus
 
-### Editing
+### Editing and display controls
 
-- line-number gutter
-- current line and column status
-- caret tracking follows typing beyond the visible viewport
-- corrected trailing-newline visual alignment
-- dirty state is derived from current content versus saved content
-- undoing exactly back to the saved state clears **Modified**
-- redo restores **Modified** when content diverges again
-- `F5` inserts a timestamp at the current editing position
-- `Tab` inserts four spaces
-- `Shift+Tab` outdents
-- multi-line indent/outdent
-- Enter preserves the current line's leading indentation
+- persistent **Wrap text** toggle
+- persistent **Line numbers** toggle
+- contextual **Autocomplete** toggle shown only when the active language provides completion data
+- line/column status for normal text
+- binary byte-offset/nibble status only while Hex Editor mode is enabled
+- F5 timestamp insertion
+- four-space Tab indentation for normal text
+- dirty state derived from current versus saved content
 
 ### Find and Replace
 
-- `Ctrl+F` opens Find
-- `Ctrl+H` opens Find/Replace
-- Enter selects the next match
-- `Shift+Enter` selects the previous match
+- Ctrl+F opens Find
+- Ctrl+H opens Find/Replace
+- Enter / Shift+Enter move next / previous
 - Replace and Replace All
-- keyboard replacement shortcuts
 - Previous / Next buttons
-- current-match counter such as `2 of 7`
-- active match is visibly highlighted
+- match counter and visible active match
 - off-screen matches are brought into view
-- document-focused undo/redo preserves expected ordering between replacement edits and subsequent typing
-- Esc, close button, or clicking outside dismisses Find/Replace
+- binary Find/Replace stays synchronized with Hex and ASCII representations
 
-### Syntax highlighting
+### Syntax highlighting and language support
 
-Editor includes lightweight syntax highlighting for common programmer file types, including:
+Language support is provided through CodeMirror 6 language metadata instead of the old hand-written lexical highlighter. Editor opens text based on content rather than a fixed extension whitelist. When CodeMirror recognizes the filename/language, the matching language support and status label are loaded; unrecognized UTF-8 text remains editable as plain text.
 
-- JavaScript / TypeScript
-- Python
-- Rust
-- C / C++ / C#
-- Java
-- Go
-- PowerShell / shell
-- JSON
-- Markdown
-- HTML / XML
-- CSS
-- YAML / TOML / INI
-
-Language mode is inferred from the filename extension. Plain text remains unhighlighted.
-
-The highlighter is intentionally lightweight; it is not a full parser or language server.
-
-### Cross-plugin file opening
-
-Editor can receive a generic panel context containing a local file path. When another plugin requests that file:
-
-- Editor waits for session restoration before applying an incoming startup request
-- an already-open path activates its existing tab
-- a new supported text file opens in a normal Editor tab
-- normal Editor file-size, UTF-8, and binary-content safety checks still apply
-
-### Native Explorer drag/drop
-
-Windows Explorer integration uses RemoteHand's generic native file-drop bridge:
-
-- dropping files on the tab strip opens the real native files
-- dropping files inside the Editor body inserts native paths at the existing caret/selection
-- multiple paths are inserted one per line
-- the Editor keeps ownership of file-opening and text-insertion semantics while RemoteHand supplies generic native paths
-
-### RemoteHand appearance integration
-
-Editor follows RemoteHand rather than maintaining a separate application theme:
-
-- toolbar, tabs, buttons, and status surfaces use RemoteHand UI appearance
-- code and line numbers use the user's RemoteHand terminal font family and size
-- the editing canvas uses the user's RemoteHand terminal background and foreground
-- syntax colors derive from RemoteHand appearance variables with safe fallbacks
-
-Changes to RemoteHand appearance are delivered through the generic plugin appearance bridge.
-
-## Supported file behavior
-
-Editor v0.3.1 is designed for UTF-8 text/code files. Common extensions include:
-
-`.txt`, `.md`, `.json`, `.yaml`, `.yml`, `.toml`, `.ini`, `.xml`, `.html`, `.htm`, `.css`, `.js`, `.jsx`, `.ts`, `.tsx`, `.py`, `.rs`, `.go`, `.c`, `.h`, `.cpp`, `.hpp`, `.cs`, `.java`, `.sh`, `.ps1`, and `.log`.
+This covers common programmer and configuration formats including JavaScript/TypeScript, Python, PHP, Rust, C/C++, C#, Java, Go, shell/PowerShell, JSON, Markdown, HTML/XML, CSS, YAML, TOML, INI, and many others exposed by CodeMirror language-data.
 
 ## Architecture
 
-RemoteHand core owns generic infrastructure:
+RemoteHand core owns generic plugin/runtime, storage, file-dialog, native-drop, appearance, panel, and navigation infrastructure. RemoteHand Editor owns CodeMirror integration, document/session semantics, recovery, text/binary file handling, Hex Editor behavior, language presentation, Find/Replace, tabs, and editing interactions.
 
-- Plugin API v1 runtime
-- plugin-scoped storage
-- host-owned native file dialogs
-- native file-path delivery
-- plugin appearance propagation
-- panels, navigation, and contribution plumbing
+The UI source is intentionally split into:
 
-RemoteHand Editor owns:
+- ui/index.html — panel shell
+- ui/editor.css — Editor / CodeMirror styling
+- ui/editor-src.js — Editor behavior
+- generated ui/editor.js — bundled CodeMirror UI output, excluded from Git
 
-- document/session semantics
-- recovery behavior
-- named-file editing
-- native-drop open/insert behavior
-- syntax and language presentation
-- Find/Replace behavior
-- tab management
-- programmer-oriented editing interactions
-
-Editor-specific behavior should remain in the plugin. Core changes should remain generic and justified by reusable plugin needs.
+The Windows package build creates a self-contained panel HTML document because RemoteHand plugin panels are served from a virtual source where sibling relative assets are not guaranteed to resolve.
 
 ## Build on Windows
 
-Requirements:
-
-- Rust toolchain compatible with Rust 1.85 or later
-- PowerShell
+Requirements: Rust 1.85 or later, Node.js/npm, and PowerShell.
 
 Run:
 
-```powershell
-cargo test
-powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
-```
+    cargo test
+    powershell.exe -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
 
-The build script creates:
+The build creates:
 
-```text
-dist\remotehand-editor-windows-x86_64\
-dist\remotehand-editor-v0.3.1-windows-x86_64.zip
-dist\SHA256SUMS.txt
-```
-
-The installable directory contains the plugin manifest, UI, sidebar asset, and Windows x86_64 runtime executable.
+    dist\remotehand-editor-windows-x86_64\
+    dist\remotehand-editor-v0.4.0-windows-x86_64.zip
+    dist\SHA256SUMS.txt
 
 ## Current limitations
 
-- UTF-8 only
+- normal text editing currently supports UTF-8 text
 - no external-file-change/conflict detection yet
 - no go-to-line UI yet
-- no word-wrap control yet
-- no bracket matching or code folding
 - no LSP, debugger, build system, project indexing, Git client, or embedded terminal
 - recovery snapshots store full document contents
-- syntax highlighting is lexical/lightweight rather than parser-based
+- general file size limit is 8 MiB
+- editable Hex mode is limited to 512 KiB
+- binary preview displays at most 128 KiB
+- binary ASCII replacement currently supports printable ASCII and equal-length replacements only
 
 ## Future directions
 
-Possible later additions include go to line, configurable indentation, word wrap, visible whitespace, bracket matching, recently closed tabs, split views, Markdown preview, JSON formatting, compare/diff, and richer syntax support.
+Possible later additions include go to line, configurable indentation, visible whitespace, recently closed tabs, split views, Markdown preview, JSON formatting, compare/diff, richer binary editing operations, and optional language-server integration.
 
 ## License
 
