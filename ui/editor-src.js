@@ -189,6 +189,8 @@ import {languages} from "@codemirror/language-data";
         EditorView.clipboardInputFilter.of(normalizePastedText),
         wrapCompartment.of(wrapText ? EditorView.lineWrapping : []),
         languageCompartment.of([]),
+        EditorState.readOnly.of(Boolean(tab.readOnly)),
+        EditorView.editable.of(!tab.readOnly),
         customKeymap(),
         EditorView.updateListener.of(update => {
           if (suppressEditorUpdates) return;
@@ -363,6 +365,9 @@ import {languages} from "@codemirror/language-data";
         dirty:Boolean(tab.dirty),
         encoding:tab.encoding || "UTF-8",
         bom:Boolean(tab.bom),
+        binary:Boolean(tab.binary),
+        readOnly:Boolean(tab.readOnly),
+        previewTruncated:Boolean(tab.previewTruncated),
         eol:tab.eol || detectEol(tab.content),
         cursor:Number.isFinite(tab.cursor) ? tab.cursor : 0
       }))
@@ -415,15 +420,18 @@ import {languages} from "@codemirror/language-data";
       savedContent:typeof raw.savedContent === "string" ? raw.savedContent : (raw.path ? null : ""),
       dirty:Boolean(raw.dirty),
       recovered:Boolean(raw.path && raw.dirty),
-      encoding:"UTF-8",
+      encoding:raw.binary ? "Binary" : "UTF-8",
       bom:Boolean(raw.bom),
-      eol:raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || "")),
+      binary:Boolean(raw.binary),
+      readOnly:Boolean(raw.readOnly),
+      previewTruncated:Boolean(raw.previewTruncated),
+      eol:raw.binary ? "—" : (raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || ""))),
       cursor:Math.max(0, Number(raw.cursor) || 0),
       cmState:null
     }));
 
     for (const tab of tabs) {
-      if (!tab.path) continue;
+      if (!tab.path || tab.binary) continue;
       try {
         const fresh = await request("file.read", {path:tab.path});
         tab.savedContent = fresh.content || "";
@@ -483,8 +491,10 @@ import {languages} from "@codemirror/language-data";
     tab.cmState = view.state;
 
     encoding.textContent = tab.encoding || "UTF-8";
-    eol.textContent = tab.eol || detectEol(tab.content);
-    language.textContent = languageInfo(tab.name);
+    eol.textContent = tab.binary ? "—" : (tab.eol || detectEol(tab.content));
+    language.textContent = tab.binary
+      ? (tab.previewTruncated ? "Binary preview (truncated)" : "Binary preview")
+      : languageInfo(tab.name);
     updateSaveState();
     updatePosition();
     void applyLanguageForActiveTab();
@@ -758,7 +768,10 @@ import {languages} from "@codemirror/language-data";
       recovered:false,
       encoding:result.encoding || "UTF-8",
       bom:Boolean(result.bom),
-      eol:result.eol || detectEol(result.content || ""),
+      binary:Boolean(result.binary),
+      readOnly:Boolean(result.readOnly),
+      previewTruncated:Boolean(result.previewTruncated),
+      eol:result.binary ? "—" : (result.eol || detectEol(result.content || "")),
       cursor:0,
       cmState:null
     };
@@ -767,6 +780,30 @@ import {languages} from "@codemirror/language-data";
     activeId = tab.id;
     render();
     return true;
+  }
+
+  async function resolveOpenResult(result) {
+    if (!result || !result.path) return false;
+    if (!result.binary || Object.prototype.hasOwnProperty.call(result, "content")) {
+      return activateOpenedFile(result);
+    }
+
+    const sizeText = Number.isFinite(Number(result.size))
+      ? " (" + Number(result.size).toLocaleString() + " bytes)"
+      : "";
+    const choice = await choiceModal(
+      "Binary file detected",
+      "“" + (result.name || basename(result.path)) + "” appears to be binary" + sizeText +
+        ". Open a read-only hex preview?",
+      [
+        {id:"preview", label:"Open preview", primary:true},
+        {id:"cancel", label:"Cancel"}
+      ]
+    );
+    if (choice !== "preview") return false;
+
+    const preview = await request("file.read", {path:result.path, allowBinary:true});
+    return activateOpenedFile(preview);
   }
 
   async function openPath(path) {
@@ -783,7 +820,7 @@ import {languages} from "@codemirror/language-data";
 
     try {
       const result = await request("file.read", {path:value});
-      if (activateOpenedFile(result)) await persistNow();
+      if (await resolveOpenResult(result)) await persistNow();
     } catch (error) {
       await messageModal("Could not open file", String(error));
     }
@@ -795,7 +832,7 @@ import {languages} from "@codemirror/language-data";
     try {
       const result = await request("file.open");
       if (!result || result.opened === false || !result.path) return;
-      activateOpenedFile(result);
+      await resolveOpenResult(result);
     } catch (error) {
       await messageModal("Could not open file", String(error));
     } finally {
@@ -806,6 +843,10 @@ import {languages} from "@codemirror/language-data";
 
   async function saveTab(tab = activeTab()) {
     if (!tab) return false;
+    if (tab.readOnly || tab.binary) {
+      await messageModal("Read-only preview", "Binary previews cannot be edited or saved.");
+      return false;
+    }
     if (tab.id === activeId) saveActiveEditorState();
     if (!tab.path) return saveAsTab(tab);
 
@@ -830,6 +871,10 @@ import {languages} from "@codemirror/language-data";
 
   async function saveAsTab(tab = activeTab()) {
     if (!tab || nativeDialogPending) return false;
+    if (tab.readOnly || tab.binary) {
+      await messageModal("Read-only preview", "Binary previews cannot be edited or saved.");
+      return false;
+    }
     if (tab.id === activeId) saveActiveEditorState();
 
     nativeDialogPending = true;
