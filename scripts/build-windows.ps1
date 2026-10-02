@@ -14,6 +14,7 @@ Write-Host "Building RemoteHand Editor UI..."
 Push-Location $repo
 try {
     if (-not (Test-Path (Join-Path $repo "node_modules\codemirror")) -or
+        -not (Test-Path (Join-Path $repo "node_modules\@codemirror\autocomplete")) -or
         -not (Test-Path (Join-Path $repo "node_modules\esbuild"))) {
         npm.cmd install --no-package-lock
         if ($LASTEXITCODE -ne 0) {
