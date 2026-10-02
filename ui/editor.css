@@ -41,6 +41,8 @@ button:disabled{opacity:.45;cursor:default}
 .cm-editor .cm-line{padding:0}
 .cm-editor .cm-gutters{background:var(--remotehand-terminal-background,var(--remotehand-background,#11151a));color:var(--remotehand-muted-text,#718096);border-right:1px solid var(--remotehand-border,#2b3540)}
 .cm-editor .cm-lineNumbers .cm-gutterElement{padding:0 9px 0 6px;min-width:47px}
+.editor-host.hide-line-numbers .cm-gutters{display:none}
+.cm-editor .cm-specialChar{color:var(--remotehand-muted-text,#718096);background:transparent}
 .cm-editor .cm-activeLine{background:color-mix(in srgb,var(--remotehand-accent-surface,#19304a) 16%,transparent)}
 .cm-editor .cm-activeLineGutter{background:color-mix(in srgb,var(--remotehand-accent-surface,#19304a) 20%,transparent)}
 .cm-editor .cm-cursor,.cm-editor .cm-dropCursor{border-left:2px solid var(--remotehand-terminal-foreground,var(--remotehand-text,#fff))}
