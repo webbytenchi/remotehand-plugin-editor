@@ -5,7 +5,7 @@ use std::io::{self, ErrorKind, Read, Write};
 use std::path::Path;
 
 const PLUGIN_ID: &str = "remotehand.editor";
-const PLUGIN_VERSION: &str = "0.3.1";
+const PLUGIN_VERSION: &str = "0.4.0";
 const API_VERSION: u32 = 1;
 const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 const MAX_FILE_BYTES: u64 = 8 * 1024 * 1024;
