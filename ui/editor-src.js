@@ -272,6 +272,21 @@ import {languages} from "@codemirror/language-data";
       : targetLine.from + hexStart + (cell.nibble || 0);
   }
 
+  function lineEdgeBinaryPosition(cell, side, toEnd) {
+    const order = toEnd
+      ? Array.from({length:16}, (_,index) => 15 - index)
+      : Array.from({length:16}, (_,index) => index);
+
+    for (const byteIndex of order) {
+      const hexStart = hexByteStart(byteIndex);
+      const pair = cell.line.text.slice(hexStart, hexStart + 2);
+      if (!/^[0-9A-F]{2}$/i.test(pair)) continue;
+      if (side === "ascii") return cell.line.from + 61 + byteIndex;
+      return cell.line.from + hexStart + (toEnd ? 1 : 0);
+    }
+    return cell.position;
+  }
+
   function binaryGuardFor(tab) {
     if (!tab.hexEditable) return [];
     return EditorState.transactionFilter.of(transaction => {
@@ -314,6 +329,18 @@ import {languages} from "@codemirror/language-data";
         side,
         event.key === "ArrowDown",
         hexCell ? hexCell.nibble : 0
+      );
+      view.dispatch({selection:{anchor:target}, scrollIntoView:true});
+      return;
+    }
+
+    if (side && mod && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      const toEnd = event.key === "ArrowRight";
+      const target = lineEdgeBinaryPosition(
+        asciiCell || hexCell,
+        side,
+        toEnd
       );
       view.dispatch({selection:{anchor:target}, scrollIntoView:true});
       return;
