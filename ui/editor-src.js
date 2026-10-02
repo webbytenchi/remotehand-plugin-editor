@@ -3,6 +3,7 @@ import {EditorState, Compartment, Prec, Annotation, Transaction} from "@codemirr
 import {keymap} from "@codemirror/view";
 import {HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
+import {closeCompletion} from "@codemirror/autocomplete";
 import {languages} from "@codemirror/language-data";
 
 (() => {
@@ -16,9 +17,12 @@ import {languages} from "@codemirror/language-data";
   const empty = document.getElementById("empty");
   const saveBtn = document.getElementById("saveBtn");
   const saveAsBtn = document.getElementById("saveAsBtn");
-  const hexEditBtn = document.getElementById("hexEditBtn");
+  const hexEditControl = document.getElementById("hexEditControl");
+  const hexEditToggle = document.getElementById("hexEdit");
   const wrapTextToggle = document.getElementById("wrapText");
   const lineNumbersToggle = document.getElementById("lineNumbers");
+  const autocompleteControl = document.getElementById("autocompleteControl");
+  const autocompleteToggle = document.getElementById("autocomplete");
   const position = document.getElementById("position");
   const saveState = document.getElementById("saveState");
   const encoding = document.getElementById("encoding");
@@ -64,6 +68,7 @@ import {languages} from "@codemirror/language-data";
   let untitledCounter = 1;
   let wrapText = false;
   let lineNumbers = true;
+  let autocompleteEnabled = true;
   let persistTimer = null;
   let persistInFlight = Promise.resolve();
   let modalResolve = null;
@@ -345,6 +350,9 @@ import {languages} from "@codemirror/language-data";
 
     updatePosition();
     if (!findbar.hidden) updateFindCount();
+    if (!autocompleteEnabled) {
+      requestAnimationFrame(() => closeCompletion(view));
+    }
     schedulePersist();
   }
 
@@ -372,6 +380,21 @@ import {languages} from "@codemirror/language-data";
     editorHost.classList.toggle("hide-line-numbers", !lineNumbers);
   }
 
+  function updateContextualControls() {
+    const tab = activeTab();
+    const binary = Boolean(tab && tab.binary);
+    hexEditControl.hidden = !binary;
+    hexEditToggle.checked = Boolean(tab && tab.hexEditable);
+
+    const hasAutocomplete = Boolean(tab && !binary && tab.hasAutocomplete);
+    autocompleteControl.hidden = !hasAutocomplete;
+    autocompleteToggle.checked = autocompleteEnabled;
+
+    wrapTextToggle.disabled = binary;
+    saveBtn.disabled = Boolean(binary && !tab.hexEditable);
+    saveAsBtn.disabled = false;
+  }
+
   function matchingLanguage(name) {
     const lower = String(name || "").toLowerCase();
     const ext = (lower.match(/\.([^.]+)$/) || [,""])[1];
@@ -395,6 +418,8 @@ import {languages} from "@codemirror/language-data";
     const token = ++languageLoadToken;
     view.dispatch({effects:languageCompartment.reconfigure([])});
     tab.cmState = view.state;
+    tab.hasAutocomplete = false;
+    updateContextualControls();
 
     const description = matchingLanguage(tab.name);
     if (!description || typeof description.load !== "function") return;
@@ -404,6 +429,9 @@ import {languages} from "@codemirror/language-data";
       if (token !== languageLoadToken || activeId !== tab.id) return;
       view.dispatch({effects:languageCompartment.reconfigure(support)});
       tab.cmState = view.state;
+      tab.hasAutocomplete = view.state.languageDataAt("autocomplete", 0).length > 0;
+      updateContextualControls();
+      if (!autocompleteEnabled) closeCompletion(view);
     } catch (error) {
       console.warn("Editor language mode failed to load:", tab.name, error);
     }
@@ -448,6 +476,7 @@ import {languages} from "@codemirror/language-data";
       encoding:"UTF-8",
       bom:false,
       eol:detectEol(content),
+      hasAutocomplete:false,
       cursor:0,
       cmState:null
     };
@@ -466,6 +495,7 @@ import {languages} from "@codemirror/language-data";
       untitledCounter,
       wrapText,
       lineNumbers,
+      autocompleteEnabled,
       tabs:tabs.map(tab => ({
         id:tab.id,
         name:tab.name,
@@ -519,8 +549,10 @@ import {languages} from "@codemirror/language-data";
 
     wrapText = Boolean(stored.wrapText);
     lineNumbers = stored.lineNumbers !== false;
+    autocompleteEnabled = stored.autocompleteEnabled !== false;
     wrapTextToggle.checked = wrapText;
     lineNumbersToggle.checked = lineNumbers;
+    autocompleteToggle.checked = autocompleteEnabled;
     applyLineNumbersState();
     untitledCounter = Math.max(1, Number(stored.untitledCounter) || 1);
 
@@ -540,6 +572,7 @@ import {languages} from "@codemirror/language-data";
       binarySize:Number.isFinite(Number(raw.binarySize)) ? Number(raw.binarySize) : null,
       previewTruncated:Boolean(raw.previewTruncated),
       eol:raw.binary ? "—" : (raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || ""))),
+      hasAutocomplete:false,
       cursor:Math.max(0, Number(raw.cursor) || 0),
       cmState:null
     }));
@@ -612,10 +645,7 @@ import {languages} from "@codemirror/language-data";
           : (tab.previewTruncated ? "Binary preview (truncated)" : "Binary preview"))
       : languageInfo(tab.name);
 
-    hexEditBtn.hidden = !tab.binary || tab.hexEditable;
-    saveBtn.disabled = Boolean(tab.binary && !tab.hexEditable);
-    saveAsBtn.disabled = Boolean(tab.binary);
-    wrapTextToggle.disabled = Boolean(tab.binary);
+    updateContextualControls();
     updateSaveState();
     updatePosition();
     void applyLanguageForActiveTab();
@@ -894,6 +924,7 @@ import {languages} from "@codemirror/language-data";
       hexEditable:Boolean(result.hexEditable),
       binarySize:Number.isFinite(Number(result.size)) ? Number(result.size) : null,
       previewTruncated:Boolean(result.previewTruncated),
+      hasAutocomplete:false,
       eol:result.binary ? "—" : (result.eol || detectEol(result.content || "")),
       cursor:0,
       cmState:null
