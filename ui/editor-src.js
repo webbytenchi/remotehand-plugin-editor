@@ -148,6 +148,48 @@ import {languages} from "@codemirror/language-data";
     return null;
   }
 
+  function asciiCellAt(state, position) {
+    if (position < 0 || position > state.doc.length) return null;
+    const line = state.doc.lineAt(Math.min(position, state.doc.length));
+    const column = position - line.from;
+    const byteIndex = column - 61;
+    if (byteIndex < 0 || byteIndex >= 16) return null;
+
+    const hexStart = hexByteStart(byteIndex);
+    const pair = line.text.slice(hexStart, hexStart + 2);
+    if (!/^[0-9A-F]{2}$/i.test(pair)) return null;
+
+    return {
+      line,
+      byteIndex,
+      position:line.from + column,
+      hexPosition:line.from + hexStart
+    };
+  }
+
+  function binaryAsciiChanges(state, from, to, replacement) {
+    if (to - from !== replacement.length) {
+      throw new Error("Binary replacements must keep the same byte length.");
+    }
+    if (!/^[\x20-\x7E]*$/.test(replacement)) {
+      throw new Error("Binary ASCII editing currently supports printable ASCII characters only.");
+    }
+
+    const changes = [];
+    for (let index = 0; index < replacement.length; index++) {
+      const cell = asciiCellAt(state, from + index);
+      if (!cell) {
+        throw new Error("Binary replacement must stay inside the ASCII column.");
+      }
+      const code = replacement.charCodeAt(index);
+      const pair = code.toString(16).toUpperCase().padStart(2, "0");
+      changes.push({from:cell.hexPosition, to:cell.hexPosition + 2, insert:pair});
+      changes.push({from:cell.position, to:cell.position + 1, insert:replacement[index]});
+    }
+    changes.sort((a,b) => a.from - b.from);
+    return changes;
+  }
+
   function nextHexNibblePosition(state, position, direction) {
     let cursor = position + direction;
     while (cursor >= 0 && cursor <= state.doc.length) {
@@ -197,6 +239,26 @@ import {languages} from "@codemirror/language-data";
     const selection = currentSelection();
     if (!selection.empty) return;
 
+    const asciiCell = asciiCellAt(view.state, selection.head);
+    if (asciiCell && event.key.length === 1 && /^[\x20-\x7E]$/.test(event.key)) {
+      event.preventDefault();
+      const code = event.key.charCodeAt(0);
+      const pair = code.toString(16).toUpperCase().padStart(2, "0");
+      const nextAscii = asciiCellAt(view.state, asciiCell.position + 1);
+      const nextPosition = nextAscii ? nextAscii.position : asciiCell.position;
+
+      view.dispatch({
+        changes:[
+          {from:asciiCell.hexPosition, to:asciiCell.hexPosition + 2, insert:pair},
+          {from:asciiCell.position, to:asciiCell.position + 1, insert:event.key}
+        ],
+        selection:{anchor:nextPosition},
+        annotations:hexEditAnnotation.of(true),
+        scrollIntoView:true
+      });
+      return;
+    }
+
     if (/^[0-9a-fA-F]$/.test(event.key)) {
       const cell = hexNibbleAt(view.state, selection.head);
       if (!cell) return;
@@ -227,6 +289,20 @@ import {languages} from "@codemirror/language-data";
 
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       const direction = event.key === "ArrowRight" ? 1 : -1;
+
+      if (asciiCell) {
+        let cursor = selection.head + direction;
+        while (cursor >= asciiCell.line.from && cursor <= asciiCell.line.to) {
+          const target = asciiCellAt(view.state, cursor);
+          if (target) {
+            event.preventDefault();
+            view.dispatch({selection:{anchor:target.position}, scrollIntoView:true});
+            return;
+          }
+          cursor += direction;
+        }
+      }
+
       const target = nextHexNibblePosition(view.state, selection.head, direction);
       if (target !== selection.head) {
         event.preventDefault();
@@ -1231,13 +1307,28 @@ import {languages} from "@codemirror/language-data";
   }
 
   function findMatches(query) {
-    const text = editorText();
     if (!query) return [];
-    const haystack = text.toLocaleLowerCase();
     const needle = query.toLocaleLowerCase();
+    const tab = activeTab();
     const matches = [];
-    let index = 0;
 
+    if (tab && tab.binary) {
+      for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber++) {
+        const line = view.state.doc.line(lineNumber);
+        if (!/^[0-9A-Fa-f]{8}\s\s/.test(line.text)) continue;
+        const ascii = line.text.slice(61, 77);
+        const haystack = ascii.toLocaleLowerCase();
+        let index = 0;
+        while ((index = haystack.indexOf(needle, index)) >= 0) {
+          matches.push(line.from + 61 + index);
+          index += Math.max(1, needle.length);
+        }
+      }
+      return matches;
+    }
+
+    const haystack = editorText().toLocaleLowerCase();
+    let index = 0;
     while ((index = haystack.indexOf(needle, index)) >= 0) {
       matches.push(index);
       index += Math.max(1, needle.length);
@@ -1248,8 +1339,10 @@ import {languages} from "@codemirror/language-data";
   function updateFindCount(query = findInput.value) {
     const matches = findMatches(query);
     const hasMatches = Boolean(query) && matches.length > 0;
-    replaceOneBtn.disabled = !hasMatches;
-    replaceAllBtn.disabled = !hasMatches;
+    const tab = activeTab();
+    const canReplace = hasMatches && (!tab || !tab.binary || tab.hexEditable);
+    replaceOneBtn.disabled = !canReplace;
+    replaceAllBtn.disabled = !canReplace;
 
     if (!query) {
       findCount.textContent = "0 of 0";
@@ -1341,15 +1434,33 @@ import {languages} from "@codemirror/language-data";
     const query = findInput.value;
     if (!query) return;
 
+    const tab = activeTab();
+    if (tab && tab.binary && !tab.hexEditable) return;
+
     if (!selectionMatchesFind()) findNext();
     if (!selectionMatchesFind()) return;
 
     const selection = currentSelection();
     const replacement = replaceInput.value;
-    view.dispatch({
-      changes:{from:selection.from, to:selection.to, insert:replacement},
-      selection:{anchor:selection.from + replacement.length}
-    });
+
+    try {
+      if (tab && tab.binary) {
+        const changes = binaryAsciiChanges(view.state, selection.from, selection.to, replacement);
+        view.dispatch({
+          changes,
+          selection:{anchor:selection.from + replacement.length},
+          annotations:hexEditAnnotation.of(true)
+        });
+      } else {
+        view.dispatch({
+          changes:{from:selection.from, to:selection.to, insert:replacement},
+          selection:{anchor:selection.from + replacement.length}
+        });
+      }
+    } catch (error) {
+      void messageModal("Could not replace binary bytes", String(error));
+      return;
+    }
 
     findNext();
     if (findMatches(query).length === 0) view.focus();
@@ -1359,6 +1470,9 @@ import {languages} from "@codemirror/language-data";
     const query = findInput.value;
     if (!query) return;
 
+    const tab = activeTab();
+    if (tab && tab.binary && !tab.hexEditable) return;
+
     const matches = findMatches(query);
     if (matches.length === 0) {
       updateFindCount(query);
@@ -1366,8 +1480,24 @@ import {languages} from "@codemirror/language-data";
     }
 
     const replacement = replaceInput.value;
-    const changes = matches.map(index => ({from:index, to:index + query.length, insert:replacement}));
-    view.dispatch({changes});
+
+    try {
+      if (tab && tab.binary) {
+        const changes = [];
+        for (const index of matches) {
+          changes.push(...binaryAsciiChanges(view.state, index, index + query.length, replacement));
+        }
+        changes.sort((a,b) => a.from - b.from);
+        view.dispatch({changes, annotations:hexEditAnnotation.of(true)});
+      } else {
+        const changes = matches.map(index => ({from:index, to:index + query.length, insert:replacement}));
+        view.dispatch({changes});
+      }
+    } catch (error) {
+      void messageModal("Could not replace binary bytes", String(error));
+      return;
+    }
+
     updateFindCount(query);
     view.focus();
   }
