@@ -10,10 +10,27 @@ $packageUiDir = Join-Path $packageDir "ui"
 $packageAssetsDir = Join-Path $packageDir "assets"
 $pluginVersion = (Get-Content (Join-Path $repo "plugin.json") -Raw | ConvertFrom-Json).version
 
-Write-Host "Building RemoteHand Editor (release)..."
+Write-Host "Building RemoteHand Editor UI..."
 Push-Location $repo
 try {
+    if (-not (Test-Path (Join-Path $repo "node_modules\codemirror")) -or
+        -not (Test-Path (Join-Path $repo "node_modules\esbuild"))) {
+        npm.cmd install --no-package-lock
+        if ($LASTEXITCODE -ne 0) {
+            throw "npm install failed with exit code $LASTEXITCODE"
+        }
+    }
+
+    npm.cmd run build:ui
+    if ($LASTEXITCODE -ne 0) {
+        throw "UI build failed with exit code $LASTEXITCODE"
+    }
+
+    Write-Host "Building RemoteHand Editor backend (release)..."
     cargo build --release
+    if ($LASTEXITCODE -ne 0) {
+        throw "Cargo build failed with exit code $LASTEXITCODE"
+    }
 } finally {
     Pop-Location
 }
@@ -37,6 +54,8 @@ Copy-Item -Force (Join-Path $repo "README.md") (Join-Path $packageDir "README.md
 Copy-Item -Force (Join-Path $repo "CHANGELOG.md") (Join-Path $packageDir "CHANGELOG.md")
 Copy-Item -Force (Join-Path $repo "LICENSE") (Join-Path $packageDir "LICENSE")
 Copy-Item -Force (Join-Path $repo "ui\index.html") (Join-Path $packageUiDir "index.html")
+Copy-Item -Force (Join-Path $repo "ui\editor.css") (Join-Path $packageUiDir "editor.css")
+Copy-Item -Force (Join-Path $repo "ui\editor.js") (Join-Path $packageUiDir "editor.js")
 Copy-Item -Force (Join-Path $repo "assets\*") $packageAssetsDir
 Copy-Item -Force $sourceExe (Join-Path $packageBinDir "remotehand-editor.exe")
 
