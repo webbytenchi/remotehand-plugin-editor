@@ -664,6 +664,11 @@ import {languages} from "@codemirror/language-data";
     tab.cursor = head;
 
     if (tab.binary) {
+      if (!tab.hexEditable) {
+        position.textContent = "";
+        return;
+      }
+
       const ascii = asciiCellAt(view.state, head);
       const hex = hexNibbleAt(view.state, head);
       const cell = ascii || hex;
@@ -681,7 +686,7 @@ import {languages} from "@codemirror/language-data";
         return;
       }
 
-      position.textContent = "Binary";
+      position.textContent = "";
       return;
     }
 
