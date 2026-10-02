@@ -89,16 +89,8 @@ import {languages} from "@codemirror/language-data";
   }
 
   function languageInfo(name) {
-    const ext = (String(name).match(/\.([^.]+)$/) || [,""])[1].toLowerCase();
-    return ({
-      txt:"Plain Text", log:"Log", md:"Markdown",
-      json:"JSON", yaml:"YAML", yml:"YAML", toml:"TOML", ini:"INI",
-      xml:"XML", html:"HTML", htm:"HTML", css:"CSS",
-      js:"JavaScript", jsx:"JavaScript", ts:"TypeScript", tsx:"TypeScript",
-      py:"Python", rs:"Rust", go:"Go", c:"C", h:"C/C++",
-      cpp:"C++", hpp:"C++", cs:"C#", java:"Java", sh:"Shell",
-      ps1:"PowerShell"
-    })[ext] || "Plain Text";
+    const description = matchingLanguage(name);
+    return description && description.name ? description.name : "Plain Text";
   }
 
   function activeTab() {
