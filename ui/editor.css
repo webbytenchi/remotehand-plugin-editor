@@ -3,7 +3,7 @@ html,body{width:100%;height:100%;margin:0}
 body{font-family:var(--remotehand-ui-font-family,Inter,ui-sans-serif,system-ui,sans-serif);font-size:var(--remotehand-ui-font-size,13px);background:var(--remotehand-background,#11151a);color:var(--remotehand-text,#dee5ef);overflow:hidden}
 [hidden]{display:none!important}
 button,input{font:inherit}
-button{border:1px solid var(--remotehand-border,#3d4a58);background:var(--remotehand-button-background,#232c37);color:var(--remotehand-text,#f3f7fb);border-radius:7px;padding:6px 10px;cursor:pointer}
+button{display:inline-flex;align-items:center;justify-content:center;line-height:1;border:1px solid var(--remotehand-border,#3d4a58);background:var(--remotehand-button-background,#232c37);color:var(--remotehand-text,#f3f7fb);border-radius:7px;padding:6px 10px;cursor:pointer}
 button:hover{background:var(--remotehand-button-hover,#2a3542)}
 button:disabled{opacity:.45;cursor:default}
 .shell{height:100%;display:flex;flex-direction:column;min-height:0}
