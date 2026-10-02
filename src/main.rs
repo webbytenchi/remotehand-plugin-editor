@@ -176,9 +176,10 @@ fn detect_eol(content: &str) -> &'static str {
 }
 
 const MAX_BINARY_PREVIEW_BYTES: usize = 128 * 1024;
+const MAX_BINARY_EDIT_BYTES: usize = 512 * 1024;
 
-fn binary_preview(bytes: &[u8]) -> String {
-    let shown = bytes.len().min(MAX_BINARY_PREVIEW_BYTES);
+fn binary_dump(bytes: &[u8], limit: usize) -> String {
+    let shown = bytes.len().min(limit);
     let mut output = String::new();
 
     for (row, chunk) in bytes[..shown].chunks(16).enumerate() {
@@ -222,7 +223,7 @@ fn binary_preview(bytes: &[u8]) -> String {
     output
 }
 
-fn read_text_file(path: &Path, allow_binary: bool) -> Result<Value, String> {
+fn read_text_file(path: &Path, allow_binary: bool, edit_binary: bool) -> Result<Value, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("cannot inspect {}: {error}", path_text(path)))?;
     if !metadata.is_file() {
@@ -267,17 +268,79 @@ fn read_text_file(path: &Path, allow_binary: bool) -> Result<Value, String> {
         }));
     }
 
+    if edit_binary {
+        if bytes.len() > MAX_BINARY_EDIT_BYTES {
+            return Err(format!(
+                "binary file exceeds the {} KiB editable hex limit; open the read-only preview instead",
+                MAX_BINARY_EDIT_BYTES / 1024
+            ));
+        }
+
+        return Ok(json!({
+            "path": path_text(path),
+            "name": display_name(path),
+            "content": binary_dump(&bytes, bytes.len()),
+            "encoding": "Binary",
+            "bom": false,
+            "binary": true,
+            "readOnly": false,
+            "hexEditable": true,
+            "previewTruncated": false,
+            "size": bytes.len(),
+            "eol": "LF"
+        }));
+    }
+
     Ok(json!({
         "path": path_text(path),
         "name": display_name(path),
-        "content": binary_preview(&bytes),
+        "content": binary_dump(&bytes, MAX_BINARY_PREVIEW_BYTES),
         "encoding": "Binary",
         "bom": false,
         "binary": true,
         "readOnly": true,
+        "hexEditable": false,
         "previewTruncated": bytes.len() > MAX_BINARY_PREVIEW_BYTES,
         "size": bytes.len(),
         "eol": "LF"
+    }))
+}
+
+fn write_binary_file(path: &Path, hex: &str) -> Result<Value, String> {
+    if path.as_os_str().is_empty() {
+        return Err("file path is required".to_string());
+    }
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| format!("cannot inspect {}: {error}", path_text(path)))?;
+    if !metadata.file_type().is_file() || metadata.file_type().is_symlink() {
+        return Err("Editor only writes existing regular files".to_string());
+    }
+
+    let compact = hex.trim();
+    if compact.len() % 2 != 0 {
+        return Err("hex payload has an odd number of digits".to_string());
+    }
+    if compact.len() / 2 > MAX_FILE_BYTES as usize {
+        return Err("binary content exceeds the Editor 8 MiB limit".to_string());
+    }
+
+    let mut bytes = Vec::with_capacity(compact.len() / 2);
+    for index in (0..compact.len()).step_by(2) {
+        let pair = &compact[index..index + 2];
+        let byte = u8::from_str_radix(pair, 16)
+            .map_err(|_| format!("invalid hexadecimal byte at offset {}", index / 2))?;
+        bytes.push(byte);
+    }
+
+    fs::write(path, &bytes)
+        .map_err(|error| format!("cannot save {}: {error}", path_text(path)))?;
+
+    Ok(json!({
+        "saved": true,
+        "path": path_text(path),
+        "name": display_name(path),
+        "encoding": "Binary",
+        "size": bytes.len()
     }))
 }
 
@@ -354,7 +417,7 @@ fn dispatch(
                 .get("path")
                 .and_then(Value::as_str)
                 .ok_or_else(|| "host file.open did not return a path".to_string())?;
-            read_text_file(Path::new(path), false)
+            read_text_file(Path::new(path), false, false)
         },
         "file.read" => {
             #[derive(Deserialize)]
@@ -363,10 +426,12 @@ fn dispatch(
                 path: String,
                 #[serde(default)]
                 allow_binary: bool,
+                #[serde(default)]
+                edit_binary: bool,
             }
             let params: Params = serde_json::from_value(request.params.clone())
                 .map_err(|error| format!("invalid file.read request: {error}"))?;
-            read_text_file(Path::new(&params.path), params.allow_binary)
+            read_text_file(Path::new(&params.path), params.allow_binary, params.edit_binary)
         }
         "file.write" => {
             #[derive(Deserialize)]
@@ -379,6 +444,16 @@ fn dispatch(
             let params: Params = serde_json::from_value(request.params.clone())
                 .map_err(|error| format!("invalid file.write request: {error}"))?;
             write_text_file(Path::new(&params.path), &params.content, params.bom)
+        }
+        "file.write_binary" => {
+            #[derive(Deserialize)]
+            struct Params {
+                path: String,
+                hex: String,
+            }
+            let params: Params = serde_json::from_value(request.params.clone())
+                .map_err(|error| format!("invalid file.write_binary request: {error}"))?;
+            write_binary_file(Path::new(&params.path), &params.hex)
         }
         "file.save_as" => {
             #[derive(Deserialize)]
@@ -522,7 +597,7 @@ mod tests {
     #[test]
     fn reads_utf8_text() {
         let path = temp_file("utf8.txt", b"hello\nworld\n");
-        let result = read_text_file(&path, false).unwrap();
+        let result = read_text_file(&path, false, false).unwrap();
         assert_eq!(result["content"], "hello\nworld\n");
         assert_eq!(result["encoding"], "UTF-8");
         assert_eq!(result["bom"], false);
@@ -533,7 +608,7 @@ mod tests {
     #[test]
     fn reads_utf8_bom_without_exposing_it_as_text() {
         let path = temp_file("utf8-bom.py", b"\xEF\xBB\xBFprint(\"hello\")\n");
-        let result = read_text_file(&path, false).unwrap();
+        let result = read_text_file(&path, false, false).unwrap();
         assert_eq!(result["content"], "print(\"hello\")\n");
         assert_eq!(result["encoding"], "UTF-8");
         assert_eq!(result["bom"], true);
@@ -541,17 +616,18 @@ mod tests {
     }
 
     #[test]
-    fn rejects_binary_content() {
+    fn reports_binary_content_without_exposing_bytes() {
         let path = temp_file("binary.txt", &[1, 2, 0, 4]);
-        let error = read_text_file(&path, false).unwrap_err();
-        assert!(error.contains("binary"));
+        let result = read_text_file(&path, false, false).unwrap();
+        assert_eq!(result["binary"], true);
+        assert!(result.get("content").is_none());
         let _ = fs::remove_file(path);
     }
 
     #[test]
     fn reads_text_regardless_of_extension() {
         let path = temp_file("notes.unknownext", b"plain text\n");
-        let result = read_text_file(&path, false).unwrap();
+        let result = read_text_file(&path, false, false).unwrap();
         assert_eq!(result["content"], "plain text\n");
         assert_eq!(result["binary"], false);
         let _ = fs::remove_file(path);
@@ -560,7 +636,7 @@ mod tests {
     #[test]
     fn reports_binary_before_previewing_it() {
         let path = temp_file("sample.bin", &[0x00, 0x01, 0x41, 0x42, 0xFF]);
-        let result = read_text_file(&path, false).unwrap();
+        let result = read_text_file(&path, false, false).unwrap();
         assert_eq!(result["binary"], true);
         assert!(result.get("content").is_none());
         let _ = fs::remove_file(path);
@@ -569,10 +645,30 @@ mod tests {
     #[test]
     fn returns_read_only_hex_preview_for_binary() {
         let path = temp_file("sample.bin", &[0x00, 0x01, 0x41, 0x42, 0xFF]);
-        let result = read_text_file(&path, true).unwrap();
+        let result = read_text_file(&path, true, false).unwrap();
         assert_eq!(result["binary"], true);
         assert_eq!(result["readOnly"], true);
         assert!(result["content"].as_str().unwrap().contains("00 01 41 42 FF"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn returns_editable_full_hex_for_small_binary() {
+        let path = temp_file("editable.bin", &[0x00, 0x01, 0x41, 0x42, 0xFF]);
+        let result = read_text_file(&path, true, true).unwrap();
+        assert_eq!(result["binary"], true);
+        assert_eq!(result["readOnly"], false);
+        assert_eq!(result["hexEditable"], true);
+        assert_eq!(result["previewTruncated"], false);
+        assert!(result["content"].as_str().unwrap().contains("00 01 41 42 FF"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn writes_binary_from_hex_payload() {
+        let path = temp_file("write-binary.bin", &[0x00]);
+        write_binary_file(&path, "4D5A9000").unwrap();
+        assert_eq!(fs::read(&path).unwrap(), &[0x4D, 0x5A, 0x90, 0x00]);
         let _ = fs::remove_file(path);
     }
 
