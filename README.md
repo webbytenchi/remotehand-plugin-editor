@@ -2,7 +2,7 @@
 
 RemoteHand Editor is a lightweight programmer-focused text, code, and binary editor for RemoteHand.
 
-Version **0.4.0** replaces the hand-built textarea/overlay editing engine with CodeMirror 6 while preserving RemoteHand-specific document, tab, recovery, file, drag/drop, and appearance behavior. It also adds content-based text-file opening, configurable editor display options, UTF-8 BOM preservation, and a safe binary preview / Hex Editor workflow.
+Version **0.4.1** keeps the CodeMirror 6 editing core and v0.4.0 file/binary workflows unchanged while refreshing the compact RemoteHand sidebar icon.
 
 ## Requirements
 
@@ -10,7 +10,7 @@ RemoteHand Editor uses RemoteHand Plugin API v1 host capabilities for plugin-sco
 
 The Editor's standalone file/editing capabilities require **RemoteHand v1.2.17 or later**. Cross-plugin file opening, including File Manager's **Open in Editor** action, requires **RemoteHand v1.2.20 or later**. Native Windows Explorer file drops require a RemoteHand build with the generic native file-drop bridge.
 
-## v0.4.0 features
+## Editor features
 
 ### CodeMirror 6 editing core
 
@@ -108,7 +108,7 @@ Run:
 The build creates:
 
     dist\remotehand-editor-windows-x86_64\
-    dist\remotehand-editor-v0.4.0-windows-x86_64.zip
+    dist\remotehand-editor-v0.4.1-windows-x86_64.zip
     dist\SHA256SUMS.txt
 
 ## Current limitations
