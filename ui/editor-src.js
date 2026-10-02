@@ -1,6 +1,6 @@
 import {EditorView, basicSetup} from "codemirror";
-import {EditorState, Compartment, Prec, Annotation, Transaction} from "@codemirror/state";
-import {keymap} from "@codemirror/view";
+import {EditorState, Compartment, Prec, Annotation, Transaction, StateEffect, StateField} from "@codemirror/state";
+import {keymap, Decoration} from "@codemirror/view";
 import {HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
 import {closeCompletion} from "@codemirror/autocomplete";
@@ -45,6 +45,26 @@ import {languages} from "@codemirror/language-data";
   const languageCompartment = new Compartment();
   const binaryGuardCompartment = new Compartment();
   const hexEditAnnotation = Annotation.define();
+  const setBinaryFindMarks = StateEffect.define();
+  const binaryFindMark = Decoration.mark({class:"cm-binaryFindMatch"});
+  const binaryFindField = StateField.define({
+    create:() => Decoration.none,
+    update(value, transaction) {
+      let next = value.map(transaction.changes);
+      for (const effect of transaction.effects) {
+        if (effect.is(setBinaryFindMarks)) {
+          next = Decoration.set(
+            effect.value
+              .filter(range => range && range.from < range.to)
+              .map(range => binaryFindMark.range(range.from, range.to)),
+            true
+          );
+        }
+      }
+      return next;
+    },
+    provide:field => EditorView.decorations.from(field)
+  });
 
   const remotehandHighlightStyle = HighlightStyle.define([
     {tag:[tags.keyword, tags.operatorKeyword], color:"var(--remotehand-accent-text,#7fb4e8)", fontWeight:"600"},
@@ -190,6 +210,16 @@ import {languages} from "@codemirror/language-data";
     return changes;
   }
 
+  function nextAsciiPosition(state, position, direction) {
+    let cursor = position + direction;
+    while (cursor >= 0 && cursor <= state.doc.length) {
+      const cell = asciiCellAt(state, cursor);
+      if (cell) return cell.position;
+      cursor += direction;
+    }
+    return position;
+  }
+
   function nextHexNibblePosition(state, position, direction) {
     let cursor = position + direction;
     while (cursor >= 0 && cursor <= state.doc.length) {
@@ -244,8 +274,7 @@ import {languages} from "@codemirror/language-data";
       event.preventDefault();
       const code = event.key.charCodeAt(0);
       const pair = code.toString(16).toUpperCase().padStart(2, "0");
-      const nextAscii = asciiCellAt(view.state, asciiCell.position + 1);
-      const nextPosition = nextAscii ? nextAscii.position : asciiCell.position;
+      const nextPosition = nextAsciiPosition(view.state, asciiCell.position, 1);
 
       view.dispatch({
         changes:[
@@ -291,15 +320,11 @@ import {languages} from "@codemirror/language-data";
       const direction = event.key === "ArrowRight" ? 1 : -1;
 
       if (asciiCell) {
-        let cursor = selection.head + direction;
-        while (cursor >= asciiCell.line.from && cursor <= asciiCell.line.to) {
-          const target = asciiCellAt(view.state, cursor);
-          if (target) {
-            event.preventDefault();
-            view.dispatch({selection:{anchor:target.position}, scrollIntoView:true});
-            return;
-          }
-          cursor += direction;
+        const target = nextAsciiPosition(view.state, selection.head, direction);
+        if (target !== selection.head) {
+          event.preventDefault();
+          view.dispatch({selection:{anchor:target}, scrollIntoView:true});
+          return;
         }
       }
 
@@ -379,6 +404,7 @@ import {languages} from "@codemirror/language-data";
         EditorView.clipboardInputFilter.of(normalizePastedText),
         wrapCompartment.of(wrapText ? EditorView.lineWrapping : []),
         languageCompartment.of([]),
+        binaryFindField,
         binaryGuardCompartment.of(binaryGuardFor(tab)),
         EditorState.readOnly.of(Boolean(tab.readOnly)),
         EditorView.editable.of(!tab.readOnly),
@@ -401,6 +427,7 @@ import {languages} from "@codemirror/language-data";
         EditorView.clipboardInputFilter.of(normalizePastedText),
         wrapCompartment.of([]),
         languageCompartment.of([]),
+        binaryFindField,
         customKeymap()
       ]
     }),
@@ -1412,11 +1439,33 @@ import {languages} from "@codemirror/language-data";
 
   function closeFind(focusEditor = true) {
     findbar.hidden = true;
+    clearBinaryFindMarks();
     if (focusEditor) view.focus();
   }
 
   function syncReplaceMode() {
     replaceRow.hidden = !replaceToggle.checked;
+  }
+
+  function binaryFindRanges(match) {
+    if (!match || !match.binary) return [];
+    const bytes = binaryByteMap();
+    const ranges = [];
+    for (let i = 0; i < match.length; i++) {
+      const byte = bytes[match.byteOffset + i];
+      if (!byte) continue;
+      ranges.push({from:byte.hexPosition, to:byte.hexPosition + 2});
+      ranges.push({from:byte.asciiPosition, to:byte.asciiPosition + 1});
+    }
+    ranges.sort((a,b) => a.from - b.from);
+    return ranges;
+  }
+
+  function clearBinaryFindMarks() {
+    const tab = activeTab();
+    if (tab && tab.binary) {
+      view.dispatch({effects:setBinaryFindMarks.of([])});
+    }
   }
 
   function findMove(direction) {
@@ -1450,10 +1499,22 @@ import {languages} from "@codemirror/language-data";
 
     const from = matchFrom(target);
     const to = matchTo(target, query.length);
-    view.dispatch({
-      selection:{anchor:from, head:to},
-      effects:EditorView.scrollIntoView(from, {y:"center"})
-    });
+    const tab = activeTab();
+
+    if (tab && tab.binary && typeof target !== "number") {
+      view.dispatch({
+        selection:{anchor:from},
+        effects:[
+          EditorView.scrollIntoView(from, {y:"center"}),
+          setBinaryFindMarks.of(binaryFindRanges(target))
+        ]
+      });
+    } else {
+      view.dispatch({
+        selection:{anchor:from, head:to},
+        effects:EditorView.scrollIntoView(from, {y:"center"})
+      });
+    }
     updateFindCount(query);
     findInput.focus({preventScroll:true});
   }
@@ -1529,6 +1590,7 @@ import {languages} from "@codemirror/language-data";
       return;
     }
 
+    clearBinaryFindMarks();
     findNext();
     if (findMatches(query).length === 0) view.focus();
   }
@@ -1663,7 +1725,10 @@ import {languages} from "@codemirror/language-data";
   });
 
   replaceToggle.addEventListener("change", syncReplaceMode);
-  findInput.addEventListener("input", () => updateFindCount());
+  findInput.addEventListener("input", () => {
+    clearBinaryFindMarks();
+    updateFindCount();
+  });
 
   function handleFindReplaceKeydown(event) {
     if (event.key === "Enter") {
