@@ -209,7 +209,11 @@ fn read_text_file(path: &Path) -> Result<Value, String> {
     if bytes.iter().take(8192).any(|byte| *byte == 0) {
         return Err("binary files are not supported".to_string());
     }
-    let content = String::from_utf8(bytes)
+
+    const UTF8_BOM: &[u8; 3] = b"\xEF\xBB\xBF";
+    let has_bom = bytes.starts_with(UTF8_BOM);
+    let text_bytes = if has_bom { &bytes[UTF8_BOM.len()..] } else { &bytes[..] };
+    let content = String::from_utf8(text_bytes.to_vec())
         .map_err(|_| "Editor currently supports UTF-8 text files only".to_string())?;
 
     Ok(json!({
@@ -217,11 +221,12 @@ fn read_text_file(path: &Path) -> Result<Value, String> {
         "name": display_name(path),
         "content": content,
         "encoding": "UTF-8",
+        "bom": has_bom,
         "eol": detect_eol(&content)
     }))
 }
 
-fn write_text_file(path: &Path, content: &str) -> Result<Value, String> {
+fn write_text_file(path: &Path, content: &str, bom: bool) -> Result<Value, String> {
     if path.as_os_str().is_empty() {
         return Err("file path is required".to_string());
     }
@@ -234,7 +239,13 @@ fn write_text_file(path: &Path, content: &str) -> Result<Value, String> {
         return Err("Editor only writes existing regular files".to_string());
     }
 
-    fs::write(path, content.as_bytes())
+    let mut bytes = Vec::with_capacity(content.len() + if bom { 3 } else { 0 });
+    if bom {
+        bytes.extend_from_slice(b"\xEF\xBB\xBF");
+    }
+    bytes.extend_from_slice(content.as_bytes());
+
+    fs::write(path, bytes)
         .map_err(|error| format!("cannot save {}: {error}", path_text(path)))?;
 
     Ok(json!({
@@ -242,6 +253,7 @@ fn write_text_file(path: &Path, content: &str) -> Result<Value, String> {
         "path": path_text(path),
         "name": display_name(path),
         "encoding": "UTF-8",
+        "bom": bom,
         "eol": detect_eol(content)
     }))
 }
@@ -317,10 +329,12 @@ fn dispatch(
             struct Params {
                 path: String,
                 content: String,
+                #[serde(default)]
+                bom: bool,
             }
             let params: Params = serde_json::from_value(request.params.clone())
                 .map_err(|error| format!("invalid file.write request: {error}"))?;
-            write_text_file(Path::new(&params.path), &params.content)
+            write_text_file(Path::new(&params.path), &params.content, params.bom)
         }
         "file.save_as" => {
             #[derive(Deserialize)]
@@ -473,7 +487,18 @@ mod tests {
         let result = read_text_file(&path).unwrap();
         assert_eq!(result["content"], "hello\nworld\n");
         assert_eq!(result["encoding"], "UTF-8");
+        assert_eq!(result["bom"], false);
         assert_eq!(result["eol"], "LF");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn reads_utf8_bom_without_exposing_it_as_text() {
+        let path = temp_file("utf8-bom.py", b"\xEF\xBB\xBFprint(\"hello\")\n");
+        let result = read_text_file(&path).unwrap();
+        assert_eq!(result["content"], "print(\"hello\")\n");
+        assert_eq!(result["encoding"], "UTF-8");
+        assert_eq!(result["bom"], true);
         let _ = fs::remove_file(path);
     }
 
@@ -496,8 +521,16 @@ mod tests {
     #[test]
     fn writes_existing_regular_file() {
         let path = temp_file("write.txt", b"old");
-        write_text_file(&path, "new\r\n").unwrap();
+        write_text_file(&path, "new\r\n", false).unwrap();
         assert_eq!(fs::read_to_string(&path).unwrap(), "new\r\n");
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn preserves_utf8_bom_when_requested() {
+        let path = temp_file("write-bom.txt", b"old");
+        write_text_file(&path, "new\n", true).unwrap();
+        assert_eq!(fs::read(&path).unwrap(), b"\xEF\xBB\xBFnew\n");
         let _ = fs::remove_file(path);
     }
 }
