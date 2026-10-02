@@ -1,0 +1,17 @@
+{
+  "name": "remotehand-plugin-editor-ui",
+  "private": true,
+  "version": "0.4.0-dev",
+  "scripts": {
+    "build:ui": "esbuild ui/editor-src.js --bundle --minify --format=iife --target=chrome120 --outfile=ui/editor.js"
+  },
+  "dependencies": {
+    "@codemirror/language-data": "6.5.2",
+    "@codemirror/state": "6.7.6",
+    "@codemirror/view": "6.43.13",
+    "codemirror": "6.0.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}
