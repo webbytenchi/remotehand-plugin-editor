@@ -1306,34 +1306,71 @@ import {languages} from "@codemirror/language-data";
     await persistNow();
   }
 
+  function binaryByteMap(state = view.state) {
+    const bytes = [];
+    for (let lineNumber = 1; lineNumber <= state.doc.lines; lineNumber++) {
+      const line = state.doc.line(lineNumber);
+      if (!/^[0-9A-Fa-f]{8}\s\s/.test(line.text)) continue;
+
+      for (let byteIndex = 0; byteIndex < 16; byteIndex++) {
+        const hexStart = hexByteStart(byteIndex);
+        const pair = line.text.slice(hexStart, hexStart + 2);
+        if (!/^[0-9A-Fa-f]{2}$/.test(pair)) continue;
+        const value = Number.parseInt(pair, 16);
+        bytes.push({
+          value,
+          hexPosition:line.from + hexStart,
+          asciiPosition:line.from + 61 + byteIndex,
+          char:value >= 0x20 && value <= 0x7e ? String.fromCharCode(value) : "."
+        });
+      }
+    }
+    return bytes;
+  }
+
   function findMatches(query) {
     if (!query) return [];
     const needle = query.toLocaleLowerCase();
     const tab = activeTab();
-    const matches = [];
 
     if (tab && tab.binary) {
-      for (let lineNumber = 1; lineNumber <= view.state.doc.lines; lineNumber++) {
-        const line = view.state.doc.line(lineNumber);
-        if (!/^[0-9A-Fa-f]{8}\s\s/.test(line.text)) continue;
-        const ascii = line.text.slice(61, 77);
-        const haystack = ascii.toLocaleLowerCase();
-        let index = 0;
-        while ((index = haystack.indexOf(needle, index)) >= 0) {
-          matches.push(line.from + 61 + index);
-          index += Math.max(1, needle.length);
+      const bytes = binaryByteMap();
+      const haystack = bytes.map(byte => byte.char).join("").toLocaleLowerCase();
+      const matches = [];
+      let index = 0;
+
+      while ((index = haystack.indexOf(needle, index)) >= 0) {
+        const slice = bytes.slice(index, index + query.length);
+        if (slice.length === query.length) {
+          matches.push({
+            binary:true,
+            byteOffset:index,
+            length:query.length,
+            from:slice[0].asciiPosition,
+            to:slice[slice.length - 1].asciiPosition + 1
+          });
         }
+        index += Math.max(1, needle.length);
       }
       return matches;
     }
 
     const haystack = editorText().toLocaleLowerCase();
+    const matches = [];
     let index = 0;
     while ((index = haystack.indexOf(needle, index)) >= 0) {
       matches.push(index);
       index += Math.max(1, needle.length);
     }
     return matches;
+  }
+
+  function matchFrom(match) {
+    return typeof match === "number" ? match : match.from;
+  }
+
+  function matchTo(match, queryLength) {
+    return typeof match === "number" ? match + queryLength : match.to;
   }
 
   function updateFindCount(query = findInput.value) {
@@ -1354,7 +1391,7 @@ import {languages} from "@codemirror/language-data";
     }
 
     const selection = currentSelection();
-    let current = matches.findIndex(index => index === selection.from);
+    let current = matches.findIndex(match => matchFrom(match) === selection.from);
     if (current < 0) current = 0;
     findCount.textContent = (current + 1) + " of " + matches.length;
     return matches;
@@ -1399,11 +1436,11 @@ import {languages} from "@codemirror/language-data";
     let target;
 
     if (direction > 0) {
-      target = matches.find(index => index >= selection.to);
+      target = matches.find(match => matchFrom(match) >= selection.to);
       if (target === undefined) target = matches[0];
     } else {
       for (let i = matches.length - 1; i >= 0; i--) {
-        if (matches[i] < selection.from) {
+        if (matchFrom(matches[i]) < selection.from) {
           target = matches[i];
           break;
         }
@@ -1411,9 +1448,11 @@ import {languages} from "@codemirror/language-data";
       if (target === undefined) target = matches[matches.length - 1];
     }
 
+    const from = matchFrom(target);
+    const to = matchTo(target, query.length);
     view.dispatch({
-      selection:{anchor:target, head:target + query.length},
-      effects:EditorView.scrollIntoView(target, {y:"center"})
+      selection:{anchor:from, head:to},
+      effects:EditorView.scrollIntoView(from, {y:"center"})
     });
     updateFindCount(query);
     findInput.focus({preventScroll:true});
@@ -1422,9 +1461,19 @@ import {languages} from "@codemirror/language-data";
   function findNext() { findMove(1); }
   function findPrevious() { findMove(-1); }
 
+  function selectedFindMatch() {
+    const query = findInput.value;
+    if (!query) return null;
+    const selection = currentSelection();
+    const matches = findMatches(query);
+    return matches.find(match => matchFrom(match) === selection.from) || null;
+  }
+
   function selectionMatchesFind() {
     const query = findInput.value;
     if (!query) return false;
+    const tab = activeTab();
+    if (tab && tab.binary) return Boolean(selectedFindMatch());
     const selection = currentSelection();
     const selected = view.state.doc.sliceString(selection.from, selection.to);
     return selected.toLocaleLowerCase() === query.toLocaleLowerCase();
@@ -1445,10 +1494,28 @@ import {languages} from "@codemirror/language-data";
 
     try {
       if (tab && tab.binary) {
-        const changes = binaryAsciiChanges(view.state, selection.from, selection.to, replacement);
+        const match = selectedFindMatch();
+        if (!match) return;
+        if (replacement.length !== match.length) {
+          throw new Error("Binary replacements must keep the same byte length.");
+        }
+        if (!/^[\x20-\x7E]*$/.test(replacement)) {
+          throw new Error("Binary ASCII replacement supports printable ASCII characters only.");
+        }
+
+        const bytes = binaryByteMap();
+        const changes = [];
+        for (let i = 0; i < replacement.length; i++) {
+          const byte = bytes[match.byteOffset + i];
+          const ch = replacement[i];
+          const pair = ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0");
+          changes.push({from:byte.hexPosition, to:byte.hexPosition + 2, insert:pair});
+          changes.push({from:byte.asciiPosition, to:byte.asciiPosition + 1, insert:ch});
+        }
+        changes.sort((a,b) => a.from - b.from);
         view.dispatch({
           changes,
-          selection:{anchor:selection.from + replacement.length},
+          selection:{anchor:match.from},
           annotations:hexEditAnnotation.of(true)
         });
       } else {
@@ -1483,9 +1550,23 @@ import {languages} from "@codemirror/language-data";
 
     try {
       if (tab && tab.binary) {
+        if (replacement.length !== query.length) {
+          throw new Error("Binary replacements must keep the same byte length.");
+        }
+        if (!/^[\x20-\x7E]*$/.test(replacement)) {
+          throw new Error("Binary ASCII replacement supports printable ASCII characters only.");
+        }
+
+        const bytes = binaryByteMap();
         const changes = [];
-        for (const index of matches) {
-          changes.push(...binaryAsciiChanges(view.state, index, index + query.length, replacement));
+        for (const match of matches) {
+          for (let i = 0; i < replacement.length; i++) {
+            const byte = bytes[match.byteOffset + i];
+            const ch = replacement[i];
+            const pair = ch.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0");
+            changes.push({from:byte.hexPosition, to:byte.hexPosition + 2, insert:pair});
+            changes.push({from:byte.asciiPosition, to:byte.asciiPosition + 1, insert:ch});
+          }
         }
         changes.sort((a,b) => a.from - b.from);
         view.dispatch({changes, annotations:hexEditAnnotation.of(true)});
@@ -1612,7 +1693,7 @@ import {languages} from "@codemirror/language-data";
     const tab = activeTab();
     if (!tab || !tab.hexEditable) return;
     const selection = currentSelection();
-    if (!selection.empty || hexNibbleAt(view.state, selection.head)) return;
+    if (!selection.empty || hexNibbleAt(view.state, selection.head) || asciiCellAt(view.state, selection.head)) return;
 
     const forward = nextHexNibblePosition(view.state, selection.head, 1);
     const backward = nextHexNibblePosition(view.state, selection.head, -1);
