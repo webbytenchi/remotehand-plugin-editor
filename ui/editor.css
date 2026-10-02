@@ -48,6 +48,7 @@ button:disabled{opacity:.45;cursor:default}
 .cm-editor .cm-cursor,.cm-editor .cm-dropCursor{border-left:2px solid var(--remotehand-terminal-foreground,var(--remotehand-text,#fff))}
 .cm-editor .cm-selectionBackground,.cm-editor.cm-focused>.cm-scroller>.cm-selectionLayer .cm-selectionBackground{background:rgba(102,153,204,.35)}
 .cm-editor .cm-searchMatch{background:rgba(112,167,232,.20);outline:1px solid var(--remotehand-accent-border,#5d7fa4)}
+.cm-editor .cm-binaryFindMatch{background:rgba(112,167,232,.34);outline:1px solid var(--remotehand-accent-border,#5d7fa4);border-radius:2px}
 .cm-editor .cm-searchMatch.cm-searchMatch-selected{background:var(--remotehand-accent-surface-hover,var(--remotehand-accent-surface,rgba(112,167,232,.32)))}
 .cm-editor .cm-tooltip{background:var(--remotehand-surface,#171d24);color:var(--remotehand-text,#eef3f8);border-color:var(--remotehand-border,#3d4a58)}
 .findbar{position:absolute;top:8px;right:18px;z-index:10;display:flex;flex-direction:column;gap:5px;padding:6px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 6px 24px rgba(0,0,0,.28)}
