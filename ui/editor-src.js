@@ -838,13 +838,14 @@ import {languages} from "@codemirror/language-data";
       } else if (event.key === "Tab") {
         event.preventDefault();
         event.stopPropagation();
-        finish("commit");
-        const width = window.RemoteHandCsv.columnCount(csvRowsFor(tab));
+        const nextRows = window.RemoteHandCsv.setCell(csvRowsFor(tab), row, column, input.value);
+        updateCsvDocument(nextRows);
+        const width = window.RemoteHandCsv.columnCount(nextRows);
         const flat = Math.max(
           0,
           Math.min(
             row * width + column + (event.shiftKey ? -1 : 1),
-            csvRowsFor(tab).length * width - 1
+            nextRows.length * width - 1
           )
         );
         renderCsvGrid({row:Math.floor(flat / width), column:flat % width});
@@ -1405,12 +1406,7 @@ import {languages} from "@codemirror/language-data";
     void applyLanguageForActiveTab();
 
     requestAnimationFrame(() => {
-      if (csvMode) {
-        const first = csvTableWrap.querySelector("[data-csv-row][data-csv-column]");
-        if (first) first.focus();
-      } else {
-        view.focus();
-      }
+      if (!csvMode) view.focus();
     });
   }
 
@@ -2456,8 +2452,9 @@ import {languages} from "@codemirror/language-data";
   });
 
   document.addEventListener("mousedown", event => {
-    if (findbar.hidden) return;
     const target = event.target;
+    if (!csvContextMenu.hidden && !csvContextMenu.contains(target)) closeCsvContextMenu();
+    if (findbar.hidden) return;
     if (findbar.contains(target) || document.getElementById("findBtn").contains(target)) return;
     closeFind(false);
   });
@@ -2470,7 +2467,11 @@ import {languages} from "@codemirror/language-data";
     const key = event.key.toLowerCase();
     const mod = (event.ctrlKey || event.metaKey) && !event.altKey;
 
-    if (mod && key === "tab") {
+    if (event.key === "Escape" && !csvContextMenu.hidden) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeCsvContextMenu();
+    } else if (mod && key === "tab") {
       event.preventDefault();
       event.stopPropagation();
       switchTab(event.shiftKey ? -1 : 1);
@@ -2523,7 +2524,10 @@ import {languages} from "@codemirror/language-data";
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") void persistNow();
   });
-  window.addEventListener("blur", () => void persistNow());
+  window.addEventListener("blur", () => {
+    closeCsvContextMenu();
+    void persistNow();
+  });
   window.addEventListener("pagehide", () => void persistNow());
   window.addEventListener("resize", updateTabScrollButtons);
 
