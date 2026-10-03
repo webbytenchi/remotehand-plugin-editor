@@ -4,7 +4,7 @@
   "version": "0.5.0",
   "apiVersion": 1,
   "author": "RemoteHand",
-  "description": "A lightweight programmer-focused text editor for RemoteHand.",
+  "description": "A lightweight programmer-focused text, code, CSV, and binary editor for RemoteHand.",
   "runtime": {
     "kind": "executable",
     "entrypoints": {
