@@ -781,7 +781,7 @@ import {languages} from "@codemirror/language-data";
       input.dataset.csvColumn = String(column);
       input.title = "CSV column header";
       input.addEventListener("keydown", handleCsvCellKeydown);
-      input.addEventListener("change", () => {
+      input.addEventListener("input", () => {
         const next = window.RemoteHandCsv.setCell(csvRowsFor(), 0, column, input.value);
         updateCsvDocument(next);
       });
@@ -861,7 +861,7 @@ import {languages} from "@codemirror/language-data";
         input.dataset.csvRow = String(rowIndex);
         input.dataset.csvColumn = String(column);
         input.addEventListener("keydown", handleCsvCellKeydown);
-        input.addEventListener("change", () => {
+        input.addEventListener("input", () => {
           const next = window.RemoteHandCsv.setCell(csvRowsFor(), rowIndex, column, input.value);
           updateCsvDocument(next);
         });
@@ -982,20 +982,13 @@ import {languages} from "@codemirror/language-data";
     activeId = tab.id;
     render();
     schedulePersist();
-    requestAnimationFrame(() => {
-      if (csvMode) {
-        const first = csvTableWrap.querySelector("[data-csv-row][data-csv-column]");
-        if (first) first.focus();
-      } else {
-        view.focus();
-      }
-    });
+    requestAnimationFrame(() => view.focus());
   }
 
   function sessionPayload() {
     saveActiveEditorState();
     return {
-      version:2,
+      version:3,
       activeId,
       untitledCounter,
       wrapText,
@@ -1177,7 +1170,14 @@ import {languages} from "@codemirror/language-data";
     updatePosition();
     void applyLanguageForActiveTab();
 
-    requestAnimationFrame(() => view.focus());
+    requestAnimationFrame(() => {
+      if (csvMode) {
+        const first = csvTableWrap.querySelector("[data-csv-row][data-csv-column]");
+        if (first) first.focus();
+      } else {
+        view.focus();
+      }
+    });
   }
 
   function ensureActiveTabVisible() {
@@ -1851,6 +1851,7 @@ import {languages} from "@codemirror/language-data";
   }
 
   function openFind(replaceMode = false) {
+    if (isCsvView()) setCsvView(false);
     findbar.hidden = false;
     replaceToggle.checked = replaceMode;
     syncReplaceMode();
