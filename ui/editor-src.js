@@ -857,6 +857,18 @@ import {languages} from "@codemirror/language-data";
       applyCsvSelectionClasses(tab);
       cell.focus({preventScroll:true});
       cell.scrollIntoView({block:"nearest", inline:"nearest"});
+
+      const wrapRect = csvTableWrap.getBoundingClientRect();
+      const cellRect = cell.getBoundingClientRect();
+      const stickyRowHeadWidth = 64;
+      const minimumLeft = wrapRect.left + stickyRowHeadWidth;
+      if (cellRect.left < minimumLeft) {
+        csvTableWrap.scrollLeft = Math.max(
+          0,
+          csvTableWrap.scrollLeft - (minimumLeft - cellRect.left)
+        );
+      }
+
       if (edit) beginCsvEdit(cell);
     });
   }
@@ -1037,6 +1049,20 @@ import {languages} from "@codemirror/language-data";
       event.preventDefault();
       event.stopPropagation();
       beginCsvEdit(cell);
+      return;
+    }
+
+    if (event.key === "Escape") {
+      const bounds = csvSelectionBounds(tab);
+      const multi = bounds.top !== bounds.bottom || bounds.left !== bounds.right;
+      if (multi) {
+        event.preventDefault();
+        event.stopPropagation();
+        tab.csvSelectionAnchor = {row, column};
+        tab.csvSelection = {row, column};
+        applyCsvSelectionClasses(tab);
+        updatePosition();
+      }
       return;
     }
 
