@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.5.0] - 2026-10-03
+
+### Added
+
+- Editable structured **CSV view** for `.csv` files, with the existing raw-text view remaining available at any time.
+- CSV parsing and serialization for quoted commas, escaped quotes, quoted multiline fields, and LF/CRLF output.
+- Grid navigation with arrow keys, Tab / Shift+Tab, Enter, F2, and double-click editing.
+- Enter-to-commit data-entry flow that advances directly into the next cell and automatically appends a new row after the final cell.
+- Resizable CSV columns with widths persisted in the Editor session.
+- Right-click row actions for insert above, insert below, and delete.
+- Right-click column actions for insert left, insert right, rename, and delete.
+- Rectangular multi-cell selection with Shift+Arrow, Shift+click, and mouse drag.
+- Copy, Cut, Paste, Clear contents, and Edit context actions for CSV cells and selections.
+- Tab/newline clipboard interoperability for pasting rectangular data to and from spreadsheet applications.
+- Automatic row/column growth when pasted data extends beyond the current CSV grid.
+- CSV status details for active row/column, total dimensions, and selected-range dimensions/cell count.
+
+### Improved
+
+- CSV cells now use distinct navigation and edit modes instead of always-active textareas.
+- Sticky CSV row numbers and column headers keep the active cell visible during horizontal and vertical navigation.
+- Escape collapses a multi-cell selection back to the active cell without changing data.
+- CSV table chrome was simplified by moving dimension/position information into the normal Editor status bar.
+
+### Fixed
+
+- Prevented the active first-column CSV cell from sliding underneath the sticky row-number column.
+- Prevented cells near the top of a scrolled CSV from sliding underneath the sticky column-header row.
+- Corrected the runtime plugin version so it matches the v0.5.0 manifest.
+
+### Compatibility
+
+- RemoteHand Plugin API remains **v1**.
+- Existing text/code, Find/Replace, recovery, tab, Explorer-drop, binary preview, and Hex Editor workflows remain available.
+- Existing session data remains compatible; CSV view state and column widths are stored as additive session fields.
+- CSV v0.5.0 is comma-delimited and intentionally remains a lightweight table editor rather than a spreadsheet engine.
+
+### Verification
+
+- CSV model tests: **6 passed, 0 failed**.
+- Rust tests: **13 passed, 0 failed** after the runtime-version correction.
+- CodeMirror production UI bundle built successfully.
+- Optimized Windows backend/package build completed successfully during development acceptance.
+- Manual RemoteHand acceptance covered CSV raw/table round-trips, save-close-reopen persistence, quoted commas and escaped quotes, row/column editing, keyboard navigation, Enter auto-row creation, right-click structural actions, rectangular keyboard/mouse selection, clipboard copy/cut/paste, range status, and sticky-header/row visibility.
+
 ## [0.4.1] - 2026-10-03
 
 ### Changed
