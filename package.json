@@ -3,7 +3,8 @@
   "private": true,
   "version": "0.4.1",
   "scripts": {
-    "build:ui": "esbuild ui/editor-src.js --bundle --minify --format=iife --target=chrome120 --outfile=ui/editor.js"
+    "build:ui": "esbuild ui/editor-src.js --bundle --minify --format=iife --target=chrome120 --outfile=ui/editor.js",
+    "test:csv": "node --test tests/csv-model.test.js"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.3",
