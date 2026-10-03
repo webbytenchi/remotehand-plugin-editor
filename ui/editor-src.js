@@ -860,12 +860,23 @@ import {languages} from "@codemirror/language-data";
 
       const wrapRect = csvTableWrap.getBoundingClientRect();
       const cellRect = cell.getBoundingClientRect();
+
       const stickyRowHeadWidth = 64;
       const minimumLeft = wrapRect.left + stickyRowHeadWidth;
       if (cellRect.left < minimumLeft) {
         csvTableWrap.scrollLeft = Math.max(
           0,
           csvTableWrap.scrollLeft - (minimumLeft - cellRect.left)
+        );
+      }
+
+      const stickyHeader = csvTableWrap.querySelector("thead");
+      const stickyHeaderHeight = stickyHeader ? stickyHeader.getBoundingClientRect().height : 36;
+      const minimumTop = wrapRect.top + stickyHeaderHeight;
+      if (cellRect.top < minimumTop) {
+        csvTableWrap.scrollTop = Math.max(
+          0,
+          csvTableWrap.scrollTop - (minimumTop - cellRect.top)
         );
       }
 
