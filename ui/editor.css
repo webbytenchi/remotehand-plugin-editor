@@ -80,17 +80,17 @@ button:disabled{opacity:.45;cursor:default}
 .csv-row-head{position:sticky;left:0;z-index:2;width:64px;min-width:64px;max-width:64px;text-align:center;background:var(--remotehand-surface,#171d24)!important}
 .csv-table thead .csv-row-head{z-index:5}
 .csv-header-cell{position:relative}
-.csv-header-inner{display:flex;align-items:stretch;min-height:36px}
-.csv-header-input,.csv-cell-input{display:block;width:100%;border:0;outline:0;resize:none;background:transparent;color:var(--remotehand-terminal-foreground,var(--remotehand-text,#e6edf3));font:inherit;line-height:1.45}
-.csv-header-input{min-height:36px;padding:9px 32px 7px 9px;font-weight:700}
-.csv-cell-input{min-height:34px;padding:8px 9px;overflow:hidden}
-.csv-header-input:focus,.csv-cell-input:focus{box-shadow:inset 0 0 0 2px var(--remotehand-accent-border,#5d7fa4);background:color-mix(in srgb,var(--remotehand-accent-surface,#19304a) 22%,transparent)}
-.csv-column-delete,.csv-row-delete{border:0;background:transparent;color:var(--remotehand-muted-text,#9aa8b8);padding:0;border-radius:4px;opacity:.55;transition:opacity .12s ease,background .12s ease,color .12s ease}
-.csv-column-delete{position:absolute;right:7px;top:8px;width:20px;height:20px}
-.csv-row-delete{width:22px;height:22px;margin-left:4px}
-.csv-header-cell:hover .csv-column-delete,.csv-header-cell:focus-within .csv-column-delete,.csv-row-head:hover .csv-row-delete,.csv-row-head:focus-within .csv-row-delete{opacity:1}
-.csv-column-delete:hover,.csv-row-delete:hover{background:var(--remotehand-danger-surface,#2a1719);color:var(--remotehand-danger-text,#efaaaa)}
-.csv-column-delete:disabled{visibility:hidden}
-.csv-row-head>span{display:inline-block;min-width:18px;color:var(--remotehand-muted-text,#9aa8b8);font-size:12px}
+.csv-grid-cell{min-height:34px;padding:8px 9px;outline:0;white-space:pre-wrap;overflow-wrap:anywhere;cursor:default;color:var(--remotehand-terminal-foreground,var(--remotehand-text,#e6edf3));line-height:1.45}
+.csv-grid-header{min-height:36px;padding:9px 12px 7px;font-weight:700}
+.csv-grid-cell.selected{box-shadow:inset 0 0 0 2px var(--remotehand-accent-border,#5d7fa4);background:color-mix(in srgb,var(--remotehand-accent-surface,#19304a) 22%,transparent)}
+.csv-grid-cell.editing{padding:0;box-shadow:inset 0 0 0 2px var(--remotehand-accent-border,#5d7fa4)}
+.csv-cell-editor{display:block;width:100%;min-height:34px;margin:0;border:0;outline:0;resize:none;padding:8px 9px;background:color-mix(in srgb,var(--remotehand-accent-surface,#19304a) 22%,transparent);color:var(--remotehand-terminal-foreground,var(--remotehand-text,#e6edf3));font:inherit;line-height:1.45;overflow:hidden}
+.csv-grid-header .csv-cell-editor,.csv-header-cell .csv-cell-editor{min-height:36px;padding:9px 12px 7px;font-weight:700}
+.csv-row-head{cursor:default;user-select:none}
 .csv-resize-handle{position:absolute;top:0;right:-3px;width:7px;height:100%;cursor:col-resize;z-index:6}
 .csv-resize-handle:hover{background:color-mix(in srgb,var(--remotehand-accent-border,#5d7fa4) 55%,transparent)}
+.csv-context-menu{position:fixed;z-index:40;min-width:180px;padding:5px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:8px;background:var(--remotehand-surface,#171d24);box-shadow:0 10px 30px rgba(0,0,0,.42)}
+.csv-context-item{display:flex;width:100%;justify-content:flex-start;border:0;background:transparent;padding:7px 9px;border-radius:5px;color:var(--remotehand-text,#eef3f8)}
+.csv-context-item:hover:not(:disabled){background:var(--remotehand-button-hover,#2a3542)}
+.csv-context-item.danger:not(:disabled){color:var(--remotehand-danger-text,#efaaaa)}
+.csv-context-item:disabled{opacity:.4}
