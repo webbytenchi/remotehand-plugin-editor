@@ -742,7 +742,35 @@ import {languages} from "@codemirror/language-data";
     };
   }
 
-  function focusCsvCell(rowIndex, columnIndex, edit = false) {
+  function csvSelectionBounds(tab = activeTab()) {
+    const focus = tab && tab.csvSelection ? tab.csvSelection : {row:0, column:0};
+    const anchor = tab && tab.csvSelectionAnchor ? tab.csvSelectionAnchor : focus;
+    return {
+      top:Math.min(anchor.row, focus.row),
+      bottom:Math.max(anchor.row, focus.row),
+      left:Math.min(anchor.column, focus.column),
+      right:Math.max(anchor.column, focus.column)
+    };
+  }
+
+  function applyCsvSelectionClasses(tab = activeTab()) {
+    if (!tab) return;
+    const focus = tab.csvSelection || {row:0, column:0};
+    const bounds = csvSelectionBounds(tab);
+
+    for (const cell of csvTableWrap.querySelectorAll(".csv-grid-cell")) {
+      const row = Number(cell.dataset.csvRow);
+      const column = Number(cell.dataset.csvColumn);
+      const inRange = row >= bounds.top && row <= bounds.bottom &&
+        column >= bounds.left && column <= bounds.right;
+      const active = row === focus.row && column === focus.column;
+      cell.classList.toggle("range-selected", inRange && !active);
+      cell.classList.toggle("selected", active);
+      cell.tabIndex = active ? 0 : -1;
+    }
+  }
+
+  function focusCsvCell(rowIndex, columnIndex, edit = false, extend = false) {
     const tab = activeTab();
     if (!isCsvView(tab)) return;
 
@@ -754,22 +782,89 @@ import {languages} from "@codemirror/language-data";
     }
 
     const target = clampCsvSelection(rows, rowIndex, columnIndex);
+    if (!extend || !tab.csvSelectionAnchor) {
+      tab.csvSelectionAnchor = {...target};
+    }
     tab.csvSelection = target;
     updatePosition();
 
     requestAnimationFrame(() => {
       const cell = csvCellElement(target.row, target.column);
       if (!cell) return;
-      for (const selected of csvTableWrap.querySelectorAll(".csv-grid-cell.selected")) {
-        selected.classList.remove("selected");
-        selected.tabIndex = -1;
-      }
-      cell.classList.add("selected");
-      cell.tabIndex = 0;
+      applyCsvSelectionClasses(tab);
       cell.focus({preventScroll:true});
       cell.scrollIntoView({block:"nearest", inline:"nearest"});
       if (edit) beginCsvEdit(cell);
     });
+  }
+
+  function csvSelectionText(rows, tab = activeTab()) {
+    const bounds = csvSelectionBounds(tab);
+    const lines = [];
+    for (let row = bounds.top; row <= bounds.bottom; row++) {
+      const values = [];
+      for (let column = bounds.left; column <= bounds.right; column++) {
+        values.push((rows[row] && rows[row][column]) || "");
+      }
+      lines.push(values.join("\t"));
+    }
+    return lines.join("\r\n");
+  }
+
+  function clearCsvSelectionValues() {
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+    let rows = csvRowsFor(tab);
+    const bounds = csvSelectionBounds(tab);
+    for (let row = bounds.top; row <= bounds.bottom; row++) {
+      for (let column = bounds.left; column <= bounds.right; column++) {
+        rows[row][column] = "";
+      }
+    }
+    updateCsvDocument(rows);
+    renderCsvGrid({row:tab.csvSelection.row, column:tab.csvSelection.column});
+  }
+
+  function parseClipboardGrid(text) {
+    const normalized = String(text == null ? "" : text).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const lines = normalized.split("\n");
+    if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+    return lines.map(line => line.split("\t"));
+  }
+
+  function pasteCsvGrid(text) {
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+
+    const block = parseClipboardGrid(text);
+    if (!block.length) return;
+
+    let rows = csvRowsFor(tab);
+    const start = tab.csvSelection || {row:0, column:0};
+    const blockWidth = Math.max(1, ...block.map(row => row.length));
+    const neededRows = start.row + block.length;
+    const neededColumns = start.column + blockWidth;
+
+    while (rows.length < neededRows) rows = window.RemoteHandCsv.addRow(rows);
+    while (window.RemoteHandCsv.columnCount(rows) < neededColumns) {
+      rows = window.RemoteHandCsv.addColumn(rows);
+      tab.csvColumnWidths.push(180);
+    }
+
+    for (let rowOffset = 0; rowOffset < block.length; rowOffset++) {
+      for (let columnOffset = 0; columnOffset < block[rowOffset].length; columnOffset++) {
+        rows[start.row + rowOffset][start.column + columnOffset] = block[rowOffset][columnOffset];
+      }
+    }
+
+    updateCsvDocument(rows);
+    const end = {
+      row:start.row + block.length - 1,
+      column:start.column + blockWidth - 1
+    };
+    tab.csvSelectionAnchor = {...start};
+    tab.csvSelection = end;
+    renderCsvGrid({row:end.row, column:end.column, preserveAnchor:true});
   }
 
   function beginCsvEdit(cell) {
@@ -883,6 +978,7 @@ import {languages} from "@codemirror/language-data";
     }
 
     let target = null;
+    const arrow = event.key.startsWith("Arrow");
     if (event.key === "ArrowLeft") target = {row, column:column - 1};
     else if (event.key === "ArrowRight") target = {row, column:column + 1};
     else if (event.key === "ArrowUp") target = {row:row - 1, column};
@@ -892,13 +988,18 @@ import {languages} from "@codemirror/language-data";
       if (flat >= 0 && flat < rows.length * width) {
         target = {row:Math.floor(flat / width), column:flat % width};
       }
+    } else if (event.key === "Delete" || event.key === "Backspace") {
+      event.preventDefault();
+      event.stopPropagation();
+      clearCsvSelectionValues();
+      return;
     }
 
     if (!target) return;
     event.preventDefault();
     event.stopPropagation();
     const clamped = clampCsvSelection(rows, target.row, target.column);
-    focusCsvCell(clamped.row, clamped.column);
+    focusCsvCell(clamped.row, clamped.column, false, arrow && event.shiftKey);
   }
 
   function makeCsvGridCell(rowIndex, columnIndex, value, header = false) {
@@ -1028,6 +1129,9 @@ import {languages} from "@codemirror/language-data";
       : (tab.csvSelection || {row:0, column:0});
     const selection = clampCsvSelection(rows, requested.row, requested.column);
     tab.csvSelection = selection;
+    if (!requested.preserveAnchor || !tab.csvSelectionAnchor) {
+      tab.csvSelectionAnchor = {...selection};
+    }
 
     const table = document.createElement("table");
     table.className = "csv-table";
@@ -1107,7 +1211,7 @@ import {languages} from "@codemirror/language-data";
     table.appendChild(tbody);
     csvTableWrap.replaceChildren(table);
 
-    focusCsvCell(selection.row, selection.column, Boolean(requested.edit));
+    focusCsvCell(selection.row, selection.column, Boolean(requested.edit), Boolean(requested.preserveAnchor));
     return true;
   }
 
@@ -2372,6 +2476,31 @@ import {languages} from "@codemirror/language-data";
     else void disableHexEditing();
   });
   csvViewToggle.addEventListener("change", () => setCsvView(csvViewToggle.checked));
+  csvTableWrap.addEventListener("copy", event => {
+    if (event.target && event.target.closest(".csv-cell-editor")) return;
+    const tab = activeTab();
+    if (!isCsvView(tab) || !event.clipboardData) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", csvSelectionText(csvRowsFor(tab), tab));
+  });
+
+  csvTableWrap.addEventListener("cut", event => {
+    if (event.target && event.target.closest(".csv-cell-editor")) return;
+    const tab = activeTab();
+    if (!isCsvView(tab) || !event.clipboardData) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", csvSelectionText(csvRowsFor(tab), tab));
+    clearCsvSelectionValues();
+  });
+
+  csvTableWrap.addEventListener("paste", event => {
+    if (event.target && event.target.closest(".csv-cell-editor")) return;
+    const tab = activeTab();
+    if (!isCsvView(tab) || !event.clipboardData) return;
+    event.preventDefault();
+    pasteCsvGrid(event.clipboardData.getData("text/plain"));
+  });
+
   document.getElementById("findBtn").addEventListener("click", () => openFind(false));
   document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
