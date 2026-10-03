@@ -792,7 +792,7 @@ import {languages} from "@codemirror/language-data";
       remove.type = "button";
       remove.className = "csv-column-delete";
       remove.textContent = "×";
-      remove.title = "Delete column";
+      remove.title = "Delete column " + (rows[0][column] || (column + 1));
       remove.disabled = width <= 1;
       remove.addEventListener("click", () => {
         const next = window.RemoteHandCsv.deleteColumn(csvRowsFor(), column);
@@ -873,7 +873,7 @@ import {languages} from "@codemirror/language-data";
     }
     table.appendChild(tbody);
     csvTableWrap.replaceChildren(table);
-    csvSummary.textContent = Math.max(0, rows.length - 1).toLocaleString() + " rows · " + width.toLocaleString() + " columns";
+    csvSummary.textContent = Math.max(0, rows.length - 1).toLocaleString() + " rows × " + width.toLocaleString() + " columns";
 
     if (focus && Number.isInteger(focus.row) && Number.isInteger(focus.column)) {
       focusCsvCell(focus.row, focus.column);
@@ -908,7 +908,7 @@ import {languages} from "@codemirror/language-data";
     }
 
     if (isCsvView(tab)) {
-      position.textContent = "CSV table";
+      position.textContent = "";
       return;
     }
 
@@ -1162,7 +1162,7 @@ import {languages} from "@codemirror/language-data";
       ? (tab.hexEditable
           ? "Hex editor"
           : (tab.previewTruncated ? "Binary preview (truncated)" : "Binary preview"))
-      : (csvMode ? "CSV table" : languageInfo(tab.name));
+      : (csvMode ? "CSV" : languageInfo(tab.name));
 
     if (csvMode) renderCsvGrid();
 
