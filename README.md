@@ -1,8 +1,8 @@
 # RemoteHand Editor
 
-RemoteHand Editor is a lightweight programmer-focused text, code, and binary editor for RemoteHand.
+RemoteHand Editor is a lightweight programmer-focused text, code, CSV, and binary editor for RemoteHand.
 
-Version **0.4.1** keeps the CodeMirror 6 editing core and v0.4.0 file/binary workflows unchanged while refreshing the compact RemoteHand sidebar icon.
+Version **0.5.0** adds an editable structured CSV table view while preserving the existing CodeMirror text/code editor and binary Hex Editor workflows.
 
 ## Requirements
 
@@ -29,6 +29,27 @@ CodeMirror 6 now owns caret and selection behavior, line rendering and numbers, 
 - Explorer drag/drop into normal text documents to insert full native paths
 
 Named text files are **not silently autosaved to disk**. Explicit Save writes the real file.
+
+### CSV table view
+
+Files ending in `.csv` can be switched between normal raw-text editing and an editable structured table view.
+
+- RFC-style CSV parsing for quoted commas, escaped quotes, and quoted multiline fields
+- first CSV row treated as the column-header row
+- direct grid navigation with arrow keys, Tab / Shift+Tab, Enter, F2, and double-click editing
+- Enter commits the current edit and advances to the next cell; advancing from the final cell appends a new row automatically
+- resizable columns with persisted widths
+- right-click row controls for insert above/below and delete
+- right-click column controls for insert left/right, rename, and delete
+- rectangular multi-cell selection using Shift+Arrow, Shift+click, or mouse drag
+- Copy, Cut, Paste, Clear contents, and Edit cell context actions
+- tab/newline clipboard format for easy interchange with spreadsheet applications
+- pasted rectangular data automatically grows the CSV with additional rows or columns when needed
+- live status shows active grid position, table dimensions, and multi-cell selection size
+- sticky row numbers and column headers keep the active cell visible while navigating
+- Ctrl+Z / Ctrl+Y continue to use the underlying CodeMirror document history
+
+Opening or switching into CSV view does **not** rewrite the document. Serialization occurs only after an actual CSV edit. CSV v0.5.0 uses comma delimiters and intentionally does not implement spreadsheet formulas, charts, or workbook features.
 
 ### Binary preview and Hex Editor
 
@@ -108,7 +129,7 @@ Run:
 The build creates:
 
     dist\remotehand-editor-windows-x86_64\
-    dist\remotehand-editor-v0.4.1-windows-x86_64.zip
+    dist\remotehand-editor-v0.5.0-windows-x86_64.zip
     dist\SHA256SUMS.txt
 
 ## Current limitations
@@ -122,10 +143,12 @@ The build creates:
 - editable Hex mode is limited to 512 KiB
 - binary preview displays at most 128 KiB
 - binary ASCII replacement currently supports printable ASCII and equal-length replacements only
+- CSV structured view currently supports comma-delimited `.csv` files only
+- CSV table editing is intentionally lightweight and does not provide spreadsheet formulas, charts, or workbook features
 
 ## Future directions
 
-Possible later additions include go to line, configurable indentation, visible whitespace, recently closed tabs, split views, Markdown preview, JSON formatting, compare/diff, richer binary editing operations, and optional language-server integration.
+Possible later additions include go to line, configurable indentation, visible whitespace, recently closed tabs, split views, Markdown preview, JSON formatting, compare/diff, a searchable/filterable read-only Log view, richer binary editing operations, and optional language-server integration.
 
 ## License
 
