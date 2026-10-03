@@ -25,9 +25,6 @@ import {languages} from "@codemirror/language-data";
   const csvViewToggle = document.getElementById("csvView");
   const csvHost = document.getElementById("csvHost");
   const csvTableWrap = document.getElementById("csvTableWrap");
-  const csvAddRow = document.getElementById("csvAddRow");
-  const csvAddColumn = document.getElementById("csvAddColumn");
-  const csvSummary = document.getElementById("csvSummary");
   const wrapTextToggle = document.getElementById("wrapText");
   const lineNumbersToggle = document.getElementById("lineNumbers");
   const autocompleteControl = document.getElementById("autocompleteControl");
@@ -758,6 +755,7 @@ import {languages} from "@codemirror/language-data";
 
     const target = clampCsvSelection(rows, rowIndex, columnIndex);
     tab.csvSelection = target;
+    updatePosition();
 
     requestAnimationFrame(() => {
       const cell = csvCellElement(target.row, target.column);
@@ -1005,7 +1003,6 @@ import {languages} from "@codemirror/language-data";
     if (!isCsvView(tab)) {
       closeCsvContextMenu();
       csvTableWrap.replaceChildren();
-      csvSummary.textContent = "";
       return true;
     }
 
@@ -1109,7 +1106,6 @@ import {languages} from "@codemirror/language-data";
     }
     table.appendChild(tbody);
     csvTableWrap.replaceChildren(table);
-    csvSummary.textContent = Math.max(0, rows.length - 1).toLocaleString() + " rows × " + width.toLocaleString() + " columns";
 
     focusCsvCell(selection.row, selection.column, Boolean(requested.edit));
     return true;
@@ -1142,7 +1138,23 @@ import {languages} from "@codemirror/language-data";
     }
 
     if (isCsvView(tab)) {
-      position.textContent = "";
+      try {
+        const rows = csvRowsFor(tab);
+        const width = window.RemoteHandCsv.columnCount(rows);
+        const selection = clampCsvSelection(
+          rows,
+          tab.csvSelection && tab.csvSelection.row,
+          tab.csvSelection && tab.csvSelection.column
+        );
+        const location = selection.row === 0
+          ? "Header C" + (selection.column + 1)
+          : "R" + selection.row + " C" + (selection.column + 1);
+        position.textContent = location + " · " +
+          Math.max(0, rows.length - 1).toLocaleString() + " rows × " +
+          width.toLocaleString() + " columns";
+      } catch (_) {
+        position.textContent = "";
+      }
       return;
     }
 
@@ -2360,21 +2372,6 @@ import {languages} from "@codemirror/language-data";
     else void disableHexEditing();
   });
   csvViewToggle.addEventListener("change", () => setCsvView(csvViewToggle.checked));
-  csvAddRow.addEventListener("click", () => {
-    const tab = activeTab();
-    if (!isCsvView(tab)) return;
-    const next = window.RemoteHandCsv.addRow(csvRowsFor());
-    updateCsvDocument(next);
-    renderCsvGrid({row:next.length - 1, column:0});
-  });
-  csvAddColumn.addEventListener("click", () => {
-    const tab = activeTab();
-    if (!isCsvView(tab)) return;
-    const next = window.RemoteHandCsv.addColumn(csvRowsFor());
-    updateCsvDocument(next);
-    tab.csvColumnWidths.push(180);
-    renderCsvGrid({row:0, column:next[0].length - 1});
-  });
   document.getElementById("findBtn").addEventListener("click", () => openFind(false));
   document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
