@@ -4,6 +4,7 @@ import {keymap, Decoration} from "@codemirror/view";
 import {HighlightStyle, syntaxHighlighting} from "@codemirror/language";
 import {tags} from "@lezer/highlight";
 import {closeCompletion} from "@codemirror/autocomplete";
+import {undo, redo} from "@codemirror/commands";
 import {languages} from "@codemirror/language-data";
 
 (() => {
@@ -19,6 +20,13 @@ import {languages} from "@codemirror/language-data";
   const saveAsBtn = document.getElementById("saveAsBtn");
   const hexEditControl = document.getElementById("hexEditControl");
   const hexEditToggle = document.getElementById("hexEdit");
+  const csvViewControl = document.getElementById("csvViewControl");
+  const csvViewToggle = document.getElementById("csvView");
+  const csvHost = document.getElementById("csvHost");
+  const csvTableWrap = document.getElementById("csvTableWrap");
+  const csvAddRow = document.getElementById("csvAddRow");
+  const csvAddColumn = document.getElementById("csvAddColumn");
+  const csvSummary = document.getElementById("csvSummary");
   const wrapTextToggle = document.getElementById("wrapText");
   const lineNumbersToggle = document.getElementById("lineNumbers");
   const autocompleteControl = document.getElementById("autocompleteControl");
@@ -125,6 +133,14 @@ import {languages} from "@codemirror/language-data";
 
   function activeTab() {
     return tabs.find(tab => tab.id === activeId) || null;
+  }
+
+  function isCsvTab(tab) {
+    return Boolean(tab && !tab.binary && /\.csv$/i.test(String(tab.name || "")));
+  }
+
+  function isCsvView(tab = activeTab()) {
+    return Boolean(isCsvTab(tab) && tab.viewMode === "csv");
   }
 
   function makeId() {
@@ -599,14 +615,19 @@ import {languages} from "@codemirror/language-data";
   function updateContextualControls() {
     const tab = activeTab();
     const binary = Boolean(tab && tab.binary);
+    const csvEligible = isCsvTab(tab);
+    const csvMode = isCsvView(tab);
     hexEditControl.hidden = !binary;
     hexEditToggle.checked = Boolean(tab && tab.hexEditable);
+    csvViewControl.hidden = !csvEligible;
+    csvViewToggle.checked = csvMode;
 
-    const hasAutocomplete = Boolean(tab && !binary && tab.hasAutocomplete);
+    const hasAutocomplete = Boolean(tab && !binary && !csvMode && tab.hasAutocomplete);
     autocompleteControl.hidden = !hasAutocomplete;
     autocompleteToggle.checked = autocompleteEnabled;
 
-    wrapTextToggle.disabled = binary;
+    wrapTextToggle.disabled = binary || csvMode;
+    lineNumbersToggle.disabled = csvMode;
     saveBtn.disabled = Boolean(binary && !tab.hexEditable);
     saveAsBtn.disabled = false;
   }
@@ -653,10 +674,240 @@ import {languages} from "@codemirror/language-data";
     }
   }
 
+
+  function csvRowsFor(tab = activeTab()) {
+    if (!isCsvTab(tab)) return null;
+    return window.RemoteHandCsv.normalize(window.RemoteHandCsv.parse(tab.content));
+  }
+
+  function updateCsvDocument(rows) {
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+    const content = window.RemoteHandCsv.stringify(rows, tab.eol || detectEol(tab.content));
+    if (content === view.state.doc.toString()) return;
+    view.dispatch({
+      changes:{from:0, to:view.state.doc.length, insert:content},
+      selection:{anchor:Math.min(view.state.selection.main.head, content.length)}
+    });
+    tab.cmState = view.state;
+  }
+
+  function focusCsvCell(rowIndex, columnIndex) {
+    requestAnimationFrame(() => {
+      const target = csvTableWrap.querySelector(
+        '[data-csv-row="' + rowIndex + '"][data-csv-column="' + columnIndex + '"]'
+      );
+      if (target) {
+        target.focus();
+        target.select();
+      }
+    });
+  }
+
+  function handleCsvCellKeydown(event) {
+    if (event.key !== "Tab") return;
+    const target = event.currentTarget;
+    const row = Number(target.dataset.csvRow);
+    const column = Number(target.dataset.csvColumn);
+    const rows = csvRowsFor();
+    if (!rows) return;
+    const width = window.RemoteHandCsv.columnCount(rows);
+    const flat = row * width + column + (event.shiftKey ? -1 : 1);
+    const max = rows.length * width - 1;
+    if (flat < 0 || flat > max) return;
+    event.preventDefault();
+    focusCsvCell(Math.floor(flat / width), flat % width);
+  }
+
+  function renderCsvGrid(focus = null) {
+    const tab = activeTab();
+    if (!isCsvView(tab)) {
+      csvTableWrap.replaceChildren();
+      csvSummary.textContent = "";
+      return true;
+    }
+
+    let rows;
+    try {
+      rows = csvRowsFor(tab);
+    } catch (error) {
+      tab.viewMode = "text";
+      csvViewToggle.checked = false;
+      csvHost.hidden = true;
+      editorHost.hidden = false;
+      void messageModal("Could not open CSV view", String(error));
+      return false;
+    }
+
+    const width = window.RemoteHandCsv.columnCount(rows);
+    if (!Array.isArray(tab.csvColumnWidths)) tab.csvColumnWidths = [];
+    while (tab.csvColumnWidths.length < width) tab.csvColumnWidths.push(180);
+    tab.csvColumnWidths = tab.csvColumnWidths.slice(0, width);
+
+    const table = document.createElement("table");
+    table.className = "csv-table";
+
+    const colgroup = document.createElement("colgroup");
+    const rowHeadCol = document.createElement("col");
+    rowHeadCol.style.width = "64px";
+    colgroup.appendChild(rowHeadCol);
+    for (let column = 0; column < width; column++) {
+      const col = document.createElement("col");
+      col.style.width = Math.max(90, Number(tab.csvColumnWidths[column]) || 180) + "px";
+      col.dataset.csvCol = String(column);
+      colgroup.appendChild(col);
+    }
+    table.appendChild(colgroup);
+
+    const thead = document.createElement("thead");
+    const headerRow = document.createElement("tr");
+    const corner = document.createElement("th");
+    corner.className = "csv-row-head";
+    corner.textContent = "#";
+    headerRow.appendChild(corner);
+
+    for (let column = 0; column < width; column++) {
+      const th = document.createElement("th");
+      th.className = "csv-header-cell";
+
+      const inner = document.createElement("div");
+      inner.className = "csv-header-inner";
+
+      const input = document.createElement("textarea");
+      input.className = "csv-header-input";
+      input.rows = 1;
+      input.value = rows[0][column] || "";
+      input.dataset.csvRow = "0";
+      input.dataset.csvColumn = String(column);
+      input.title = "CSV column header";
+      input.addEventListener("keydown", handleCsvCellKeydown);
+      input.addEventListener("change", () => {
+        const next = window.RemoteHandCsv.setCell(csvRowsFor(), 0, column, input.value);
+        updateCsvDocument(next);
+      });
+      inner.appendChild(input);
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "csv-column-delete";
+      remove.textContent = "×";
+      remove.title = "Delete column";
+      remove.disabled = width <= 1;
+      remove.addEventListener("click", () => {
+        const next = window.RemoteHandCsv.deleteColumn(csvRowsFor(), column);
+        updateCsvDocument(next);
+        tab.csvColumnWidths.splice(column, 1);
+        renderCsvGrid({row:0, column:Math.max(0, Math.min(column, next[0].length - 1))});
+      });
+      inner.appendChild(remove);
+
+      const handle = document.createElement("span");
+      handle.className = "csv-resize-handle";
+      handle.addEventListener("mousedown", event => {
+        event.preventDefault();
+        const startX = event.clientX;
+        const startWidth = Math.max(90, Number(tab.csvColumnWidths[column]) || 180);
+        const move = moveEvent => {
+          const nextWidth = Math.max(90, startWidth + moveEvent.clientX - startX);
+          tab.csvColumnWidths[column] = nextWidth;
+          const col = colgroup.querySelector('col[data-csv-col="' + column + '"]');
+          if (col) col.style.width = nextWidth + "px";
+        };
+        const up = () => {
+          window.removeEventListener("mousemove", move);
+          window.removeEventListener("mouseup", up);
+          schedulePersist();
+        };
+        window.addEventListener("mousemove", move);
+        window.addEventListener("mouseup", up);
+      });
+      inner.appendChild(handle);
+
+      th.appendChild(inner);
+      headerRow.appendChild(th);
+    }
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    for (let rowIndex = 1; rowIndex < rows.length; rowIndex++) {
+      const tr = document.createElement("tr");
+      const rowHead = document.createElement("th");
+      rowHead.className = "csv-row-head";
+
+      const label = document.createElement("span");
+      label.textContent = String(rowIndex);
+      rowHead.appendChild(label);
+
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "csv-row-delete";
+      remove.textContent = "×";
+      remove.title = "Delete row " + rowIndex;
+      remove.addEventListener("click", () => {
+        const next = window.RemoteHandCsv.deleteRow(csvRowsFor(), rowIndex);
+        updateCsvDocument(next);
+        renderCsvGrid({row:Math.min(rowIndex, next.length - 1), column:0});
+      });
+      rowHead.appendChild(remove);
+      tr.appendChild(rowHead);
+
+      for (let column = 0; column < width; column++) {
+        const td = document.createElement("td");
+        const input = document.createElement("textarea");
+        input.className = "csv-cell-input";
+        input.rows = 1;
+        input.value = rows[rowIndex][column] || "";
+        input.dataset.csvRow = String(rowIndex);
+        input.dataset.csvColumn = String(column);
+        input.addEventListener("keydown", handleCsvCellKeydown);
+        input.addEventListener("change", () => {
+          const next = window.RemoteHandCsv.setCell(csvRowsFor(), rowIndex, column, input.value);
+          updateCsvDocument(next);
+        });
+        td.appendChild(input);
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+    }
+    table.appendChild(tbody);
+    csvTableWrap.replaceChildren(table);
+    csvSummary.textContent = Math.max(0, rows.length - 1).toLocaleString() + " rows · " + width.toLocaleString() + " columns";
+
+    if (focus && Number.isInteger(focus.row) && Number.isInteger(focus.column)) {
+      focusCsvCell(focus.row, focus.column);
+    }
+    return true;
+  }
+
+  function setCsvView(enabled) {
+    const tab = activeTab();
+    if (!isCsvTab(tab)) return;
+    if (enabled) {
+      try {
+        window.RemoteHandCsv.parse(tab.content);
+      } catch (error) {
+        csvViewToggle.checked = false;
+        void messageModal("Could not open CSV view", String(error));
+        return;
+      }
+      tab.viewMode = "csv";
+    } else {
+      tab.viewMode = "text";
+    }
+    render();
+    schedulePersist();
+  }
+
   function updatePosition() {
     const tab = activeTab();
     if (!tab) {
       position.textContent = "Ln 1, Col 1";
+      return;
+    }
+
+    if (isCsvView(tab)) {
+      position.textContent = "CSV table";
       return;
     }
 
@@ -722,6 +973,8 @@ import {languages} from "@codemirror/language-data";
       bom:false,
       eol:detectEol(content),
       hasAutocomplete:false,
+      viewMode:"text",
+      csvColumnWidths:[],
       cursor:0,
       cmState:null
     };
@@ -729,7 +982,14 @@ import {languages} from "@codemirror/language-data";
     activeId = tab.id;
     render();
     schedulePersist();
-    requestAnimationFrame(() => view.focus());
+    requestAnimationFrame(() => {
+      if (csvMode) {
+        const first = csvTableWrap.querySelector("[data-csv-row][data-csv-column]");
+        if (first) first.focus();
+      } else {
+        view.focus();
+      }
+    });
   }
 
   function sessionPayload() {
@@ -755,6 +1015,8 @@ import {languages} from "@codemirror/language-data";
         hexEditable:Boolean(tab.hexEditable),
         binarySize:Number.isFinite(Number(tab.binarySize)) ? Number(tab.binarySize) : null,
         previewTruncated:Boolean(tab.previewTruncated),
+        viewMode:isCsvTab(tab) && tab.viewMode === "csv" ? "csv" : "text",
+        csvColumnWidths:Array.isArray(tab.csvColumnWidths) ? tab.csvColumnWidths : [],
         eol:tab.eol || detectEol(tab.content),
         cursor:Number.isFinite(tab.cursor) ? tab.cursor : 0
       }))
@@ -816,6 +1078,8 @@ import {languages} from "@codemirror/language-data";
       hexEditable:Boolean(raw.hexEditable),
       binarySize:Number.isFinite(Number(raw.binarySize)) ? Number(raw.binarySize) : null,
       previewTruncated:Boolean(raw.previewTruncated),
+      viewMode:!raw.binary && /\.csv$/i.test(String(raw.name || "")) && raw.viewMode === "csv" ? "csv" : "text",
+      csvColumnWidths:Array.isArray(raw.csvColumnWidths) ? raw.csvColumnWidths.map(value => Math.max(90, Number(value) || 180)) : [],
       eol:raw.binary ? "—" : (raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || ""))),
       hasAutocomplete:false,
       cursor:Math.max(0, Number(raw.cursor) || 0),
@@ -860,7 +1124,10 @@ import {languages} from "@codemirror/language-data";
     renderTabs();
 
     const hasTab = Boolean(tab);
-    editorHost.hidden = !hasTab;
+    if (tab && !isCsvTab(tab)) tab.viewMode = "text";
+    const csvMode = Boolean(tab && isCsvView(tab));
+    editorHost.hidden = !hasTab || csvMode;
+    csvHost.hidden = !hasTab || !csvMode;
     empty.hidden = hasTab;
 
     if (!tab) {
@@ -901,7 +1168,9 @@ import {languages} from "@codemirror/language-data";
       ? (tab.hexEditable
           ? "Hex editor"
           : (tab.previewTruncated ? "Binary preview (truncated)" : "Binary preview"))
-      : languageInfo(tab.name);
+      : (csvMode ? "CSV table" : languageInfo(tab.name));
+
+    if (csvMode) renderCsvGrid();
 
     updateContextualControls();
     updateSaveState();
@@ -1183,6 +1452,8 @@ import {languages} from "@codemirror/language-data";
       binarySize:Number.isFinite(Number(result.size)) ? Number(result.size) : null,
       previewTruncated:Boolean(result.previewTruncated),
       hasAutocomplete:false,
+      viewMode:"text",
+      csvColumnWidths:[],
       eol:result.binary ? "—" : (result.eol || detectEol(result.content || "")),
       cursor:0,
       cmState:null
@@ -1857,6 +2128,22 @@ import {languages} from "@codemirror/language-data";
     if (hexEditToggle.checked) void enableHexEditing();
     else void disableHexEditing();
   });
+  csvViewToggle.addEventListener("change", () => setCsvView(csvViewToggle.checked));
+  csvAddRow.addEventListener("click", () => {
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+    const next = window.RemoteHandCsv.addRow(csvRowsFor());
+    updateCsvDocument(next);
+    renderCsvGrid({row:next.length - 1, column:0});
+  });
+  csvAddColumn.addEventListener("click", () => {
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+    const next = window.RemoteHandCsv.addColumn(csvRowsFor());
+    updateCsvDocument(next);
+    tab.csvColumnWidths.push(180);
+    renderCsvGrid({row:0, column:next[0].length - 1});
+  });
   document.getElementById("findBtn").addEventListener("click", () => openFind(false));
   document.getElementById("findPrev").addEventListener("click", findPrevious);
   document.getElementById("findNext").addEventListener("click", findNext);
@@ -1952,6 +2239,14 @@ import {languages} from "@codemirror/language-data";
       event.preventDefault();
       event.stopPropagation();
       switchTab(event.shiftKey ? -1 : 1);
+    } else if (isCsvView() && mod && !event.shiftKey && key === "z") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (undo(view)) renderCsvGrid();
+    } else if (isCsvView() && ((mod && !event.shiftKey && key === "y") || (mod && event.shiftKey && key === "z"))) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (redo(view)) renderCsvGrid();
     } else if (mod && event.shiftKey && key === "s") {
       event.preventDefault();
       event.stopPropagation();
