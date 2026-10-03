@@ -706,7 +706,15 @@ import {languages} from "@codemirror/language-data";
       const button = document.createElement("button");
       button.type = "button";
       button.className = "csv-context-item" + (item.danger ? " danger" : "");
-      button.textContent = item.label;
+      const label = document.createElement("span");
+      label.textContent = item.label;
+      button.appendChild(label);
+      if (item.shortcut) {
+        const shortcut = document.createElement("span");
+        shortcut.className = "csv-context-shortcut";
+        shortcut.textContent = item.shortcut;
+        button.appendChild(shortcut);
+      }
       button.disabled = Boolean(item.disabled);
       button.addEventListener("click", () => {
         closeCsvContextMenu();
@@ -767,6 +775,61 @@ import {languages} from "@codemirror/language-data";
       cell.classList.toggle("range-selected", inRange && !active);
       cell.classList.toggle("selected", active);
       cell.tabIndex = active ? 0 : -1;
+    }
+  }
+
+  let csvMouseSelecting = false;
+  let csvMouseMoved = false;
+
+  function csvCellIsInSelection(row, column, tab = activeTab()) {
+    if (!tab) return false;
+    const bounds = csvSelectionBounds(tab);
+    return row >= bounds.top && row <= bounds.bottom &&
+      column >= bounds.left && column <= bounds.right;
+  }
+
+  async function writeClipboardText(text) {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const helper = document.createElement("textarea");
+    helper.value = text;
+    helper.setAttribute("readonly", "");
+    helper.style.position = "fixed";
+    helper.style.opacity = "0";
+    document.body.appendChild(helper);
+    helper.select();
+    const copied = document.execCommand("copy");
+    helper.remove();
+    if (!copied) throw new Error("Clipboard write is unavailable.");
+  }
+
+  async function readClipboardText() {
+    if (navigator.clipboard && typeof navigator.clipboard.readText === "function") {
+      return navigator.clipboard.readText();
+    }
+    throw new Error("Clipboard paste is unavailable.");
+  }
+
+  async function copyCsvSelectionToClipboard(cut = false) {
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+    try {
+      await writeClipboardText(csvSelectionText(csvRowsFor(tab), tab));
+      if (cut) clearCsvSelectionValues();
+    } catch (error) {
+      void messageModal("Clipboard unavailable", String(error));
+    }
+  }
+
+  async function pasteCsvSelectionFromClipboard() {
+    try {
+      const text = await readClipboardText();
+      pasteCsvGrid(text);
+    } catch (error) {
+      void messageModal("Clipboard unavailable", String(error));
     }
   }
 
@@ -1002,6 +1065,53 @@ import {languages} from "@codemirror/language-data";
     focusCsvCell(clamped.row, clamped.column, false, arrow && event.shiftKey);
   }
 
+  function openCsvCellMenu(event, rowIndex, columnIndex) {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+
+    if (!csvCellIsInSelection(rowIndex, columnIndex, tab)) {
+      focusCsvCell(rowIndex, columnIndex);
+    }
+
+    const bounds = csvSelectionBounds(tab);
+    const multi = bounds.top !== bounds.bottom || bounds.left !== bounds.right;
+
+    showCsvContextMenu(event.clientX, event.clientY, [
+      {
+        label:multi ? "Copy selection" : "Copy",
+        shortcut:"Ctrl+C",
+        run:() => void copyCsvSelectionToClipboard(false)
+      },
+      {
+        label:multi ? "Cut selection" : "Cut",
+        shortcut:"Ctrl+X",
+        run:() => void copyCsvSelectionToClipboard(true)
+      },
+      {
+        label:"Paste",
+        shortcut:"Ctrl+V",
+        run:() => void pasteCsvSelectionFromClipboard()
+      },
+      {
+        label:"Clear contents",
+        shortcut:"Del",
+        run:() => clearCsvSelectionValues()
+      },
+      {
+        label:"Edit",
+        shortcut:"F2",
+        disabled:multi,
+        run:() => {
+          const active = tab.csvSelection || {row:rowIndex, column:columnIndex};
+          renderCsvGrid({row:active.row, column:active.column, edit:true});
+        }
+      }
+    ]);
+  }
+
   function makeCsvGridCell(rowIndex, columnIndex, value, header = false) {
     const cell = document.createElement("div");
     cell.className = "csv-grid-cell" + (header ? " csv-grid-header" : "");
@@ -1011,13 +1121,32 @@ import {languages} from "@codemirror/language-data";
     cell.dataset.csvColumn = String(columnIndex);
     cell.title = header ? "Double-click or press F2 to rename" : "Double-click or press F2 to edit";
 
-    cell.addEventListener("click", () => focusCsvCell(rowIndex, columnIndex));
+    cell.addEventListener("mousedown", event => {
+      if (event.button !== 0) return;
+      csvMouseSelecting = true;
+      csvMouseMoved = false;
+      event.preventDefault();
+      focusCsvCell(rowIndex, columnIndex, false, event.shiftKey);
+    });
+
+    cell.addEventListener("mouseenter", event => {
+      if (!csvMouseSelecting || (event.buttons & 1) !== 1) return;
+      csvMouseMoved = true;
+      event.preventDefault();
+      focusCsvCell(rowIndex, columnIndex, false, true);
+    });
+
     cell.addEventListener("dblclick", event => {
+      if (csvMouseMoved) return;
       event.preventDefault();
       focusCsvCell(rowIndex, columnIndex);
       beginCsvEdit(cell);
     });
+
     cell.addEventListener("keydown", handleCsvGridKeydown);
+    if (!header) {
+      cell.addEventListener("contextmenu", event => openCsvCellMenu(event, rowIndex, columnIndex));
+    }
     return cell;
   }
 
@@ -2575,6 +2704,13 @@ import {languages} from "@codemirror/language-data";
       ? forward
       : backward;
     if (target !== selection.head) view.dispatch({selection:{anchor:target}});
+  });
+
+  window.addEventListener("mouseup", () => {
+    csvMouseSelecting = false;
+    requestAnimationFrame(() => {
+      csvMouseMoved = false;
+    });
   });
 
   document.addEventListener("mousedown", event => {
