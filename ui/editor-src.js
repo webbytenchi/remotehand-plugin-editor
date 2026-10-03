@@ -1382,9 +1382,18 @@ import {languages} from "@codemirror/language-data";
         const location = selection.row === 0
           ? "Header C" + (selection.column + 1)
           : "R" + selection.row + " C" + (selection.column + 1);
+        const bounds = csvSelectionBounds(tab);
+        const selectedRows = bounds.bottom - bounds.top + 1;
+        const selectedColumns = bounds.right - bounds.left + 1;
+        const selectedCells = selectedRows * selectedColumns;
+        const selectionSummary = selectedCells > 1
+          ? " · Selected " + selectedRows.toLocaleString() + " × " +
+            selectedColumns.toLocaleString() + " (" + selectedCells.toLocaleString() + " cells)"
+          : "";
+
         position.textContent = location + " · " +
           Math.max(0, rows.length - 1).toLocaleString() + " rows × " +
-          width.toLocaleString() + " columns";
+          width.toLocaleString() + " columns" + selectionSummary;
       } catch (_) {
         position.textContent = "";
       }
