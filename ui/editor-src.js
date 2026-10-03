@@ -693,36 +693,316 @@ import {languages} from "@codemirror/language-data";
     tab.cmState = view.state;
   }
 
-  function focusCsvCell(rowIndex, columnIndex) {
+  const csvContextMenu = document.createElement("div");
+  csvContextMenu.className = "csv-context-menu";
+  csvContextMenu.hidden = true;
+  document.body.appendChild(csvContextMenu);
+
+  function closeCsvContextMenu() {
+    csvContextMenu.hidden = true;
+    csvContextMenu.replaceChildren();
+  }
+
+  function showCsvContextMenu(x, y, items) {
+    csvContextMenu.replaceChildren();
+    for (const item of items) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "csv-context-item" + (item.danger ? " danger" : "");
+      button.textContent = item.label;
+      button.disabled = Boolean(item.disabled);
+      button.addEventListener("click", () => {
+        closeCsvContextMenu();
+        if (!item.disabled && typeof item.run === "function") item.run();
+      });
+      csvContextMenu.appendChild(button);
+    }
+
+    csvContextMenu.hidden = false;
+    csvContextMenu.style.left = Math.max(6, x) + "px";
+    csvContextMenu.style.top = Math.max(6, y) + "px";
+
     requestAnimationFrame(() => {
-      const target = csvTableWrap.querySelector(
-        '[data-csv-row="' + rowIndex + '"][data-csv-column="' + columnIndex + '"]'
-      );
-      if (target) {
-        target.focus();
-        target.select();
-      }
+      const rect = csvContextMenu.getBoundingClientRect();
+      const left = Math.max(6, Math.min(x, window.innerWidth - rect.width - 6));
+      const top = Math.max(6, Math.min(y, window.innerHeight - rect.height - 6));
+      csvContextMenu.style.left = left + "px";
+      csvContextMenu.style.top = top + "px";
     });
   }
 
-  function handleCsvCellKeydown(event) {
-    if (event.key !== "Tab") return;
-    const target = event.currentTarget;
-    const row = Number(target.dataset.csvRow);
-    const column = Number(target.dataset.csvColumn);
-    const rows = csvRowsFor();
+  function csvCellElement(rowIndex, columnIndex) {
+    return csvTableWrap.querySelector(
+      '.csv-grid-cell[data-csv-row="' + rowIndex + '"][data-csv-column="' + columnIndex + '"]'
+    );
+  }
+
+  function clampCsvSelection(rows, rowIndex, columnIndex) {
+    const width = window.RemoteHandCsv.columnCount(rows);
+    return {
+      row:Math.max(0, Math.min(Number(rowIndex) || 0, rows.length - 1)),
+      column:Math.max(0, Math.min(Number(columnIndex) || 0, width - 1))
+    };
+  }
+
+  function focusCsvCell(rowIndex, columnIndex, edit = false) {
+    const tab = activeTab();
+    if (!isCsvView(tab)) return;
+
+    let rows;
+    try {
+      rows = csvRowsFor(tab);
+    } catch (_) {
+      return;
+    }
+
+    const target = clampCsvSelection(rows, rowIndex, columnIndex);
+    tab.csvSelection = target;
+
+    requestAnimationFrame(() => {
+      const cell = csvCellElement(target.row, target.column);
+      if (!cell) return;
+      for (const selected of csvTableWrap.querySelectorAll(".csv-grid-cell.selected")) {
+        selected.classList.remove("selected");
+        selected.tabIndex = -1;
+      }
+      cell.classList.add("selected");
+      cell.tabIndex = 0;
+      cell.focus({preventScroll:true});
+      cell.scrollIntoView({block:"nearest", inline:"nearest"});
+      if (edit) beginCsvEdit(cell);
+    });
+  }
+
+  function beginCsvEdit(cell) {
+    const tab = activeTab();
+    if (!isCsvView(tab) || !cell || cell.classList.contains("editing")) return;
+
+    const row = Number(cell.dataset.csvRow);
+    const column = Number(cell.dataset.csvColumn);
+    const rows = csvRowsFor(tab);
+    if (!rows || !rows[row]) return;
+
+    tab.csvSelection = {row, column};
+    const original = rows[row][column] || "";
+    cell.classList.add("editing");
+    cell.replaceChildren();
+
+    const input = document.createElement("textarea");
+    input.className = "csv-cell-editor";
+    input.rows = 1;
+    input.value = original;
+    input.dataset.originalValue = original;
+
+    const finish = (mode, direction = 1) => {
+      if (!cell.isConnected) return;
+      if (mode === "cancel") {
+        renderCsvGrid({row, column});
+        return;
+      }
+
+      let nextRows = window.RemoteHandCsv.setCell(csvRowsFor(tab), row, column, input.value);
+      updateCsvDocument(nextRows);
+
+      if (mode === "advance") {
+        const width = window.RemoteHandCsv.columnCount(nextRows);
+        let flat = row * width + column + direction;
+
+        if (direction > 0 && flat >= nextRows.length * width) {
+          nextRows = window.RemoteHandCsv.addRow(nextRows);
+          updateCsvDocument(nextRows);
+          flat = (nextRows.length - 1) * width;
+        }
+
+        flat = Math.max(0, Math.min(flat, nextRows.length * width - 1));
+        renderCsvGrid({
+          row:Math.floor(flat / width),
+          column:flat % width,
+          edit:true
+        });
+        return;
+      }
+
+      renderCsvGrid({row, column});
+    };
+
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        event.stopPropagation();
+        finish("advance", event.shiftKey ? -1 : 1);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        finish("cancel");
+      } else if (event.key === "Tab") {
+        event.preventDefault();
+        event.stopPropagation();
+        finish("commit");
+        const width = window.RemoteHandCsv.columnCount(csvRowsFor(tab));
+        const flat = Math.max(
+          0,
+          Math.min(
+            row * width + column + (event.shiftKey ? -1 : 1),
+            csvRowsFor(tab).length * width - 1
+          )
+        );
+        renderCsvGrid({row:Math.floor(flat / width), column:flat % width});
+      }
+    });
+
+    input.addEventListener("blur", () => {
+      if (!cell.isConnected || !cell.classList.contains("editing")) return;
+      const next = window.RemoteHandCsv.setCell(csvRowsFor(tab), row, column, input.value);
+      updateCsvDocument(next);
+      renderCsvGrid({row, column});
+    });
+
+    cell.appendChild(input);
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  }
+
+  function handleCsvGridKeydown(event) {
+    const cell = event.currentTarget;
+    if (!cell || cell.classList.contains("editing")) return;
+
+    const tab = activeTab();
+    const rows = csvRowsFor(tab);
     if (!rows) return;
     const width = window.RemoteHandCsv.columnCount(rows);
-    const flat = row * width + column + (event.shiftKey ? -1 : 1);
-    const max = rows.length * width - 1;
-    if (flat < 0 || flat > max) return;
+    const row = Number(cell.dataset.csvRow);
+    const column = Number(cell.dataset.csvColumn);
+
+    if (event.key === "F2" || event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      beginCsvEdit(cell);
+      return;
+    }
+
+    let target = null;
+    if (event.key === "ArrowLeft") target = {row, column:column - 1};
+    else if (event.key === "ArrowRight") target = {row, column:column + 1};
+    else if (event.key === "ArrowUp") target = {row:row - 1, column};
+    else if (event.key === "ArrowDown") target = {row:row + 1, column};
+    else if (event.key === "Tab") {
+      const flat = row * width + column + (event.shiftKey ? -1 : 1);
+      if (flat >= 0 && flat < rows.length * width) {
+        target = {row:Math.floor(flat / width), column:flat % width};
+      }
+    }
+
+    if (!target) return;
     event.preventDefault();
-    focusCsvCell(Math.floor(flat / width), flat % width);
+    event.stopPropagation();
+    const clamped = clampCsvSelection(rows, target.row, target.column);
+    focusCsvCell(clamped.row, clamped.column);
+  }
+
+  function makeCsvGridCell(rowIndex, columnIndex, value, header = false) {
+    const cell = document.createElement("div");
+    cell.className = "csv-grid-cell" + (header ? " csv-grid-header" : "");
+    cell.tabIndex = -1;
+    cell.textContent = value || "";
+    cell.dataset.csvRow = String(rowIndex);
+    cell.dataset.csvColumn = String(columnIndex);
+    cell.title = header ? "Double-click or press F2 to rename" : "Double-click or press F2 to edit";
+
+    cell.addEventListener("click", () => focusCsvCell(rowIndex, columnIndex));
+    cell.addEventListener("dblclick", event => {
+      event.preventDefault();
+      focusCsvCell(rowIndex, columnIndex);
+      beginCsvEdit(cell);
+    });
+    cell.addEventListener("keydown", handleCsvGridKeydown);
+    return cell;
+  }
+
+  function openCsvColumnMenu(event, column, rows) {
+    event.preventDefault();
+    event.stopPropagation();
+    focusCsvCell(0, column);
+    const tab = activeTab();
+    const width = window.RemoteHandCsv.columnCount(rows);
+
+    showCsvContextMenu(event.clientX, event.clientY, [
+      {
+        label:"Insert column left",
+        run:() => {
+          const next = window.RemoteHandCsv.addColumn(csvRowsFor(tab), column);
+          updateCsvDocument(next);
+          tab.csvColumnWidths.splice(column, 0, 180);
+          renderCsvGrid({row:0, column});
+        }
+      },
+      {
+        label:"Insert column right",
+        run:() => {
+          const next = window.RemoteHandCsv.addColumn(csvRowsFor(tab), column + 1);
+          updateCsvDocument(next);
+          tab.csvColumnWidths.splice(column + 1, 0, 180);
+          renderCsvGrid({row:0, column:column + 1});
+        }
+      },
+      {
+        label:"Rename column",
+        run:() => renderCsvGrid({row:0, column, edit:true})
+      },
+      {
+        label:"Delete column",
+        danger:true,
+        disabled:width <= 1,
+        run:() => {
+          const next = window.RemoteHandCsv.deleteColumn(csvRowsFor(tab), column);
+          updateCsvDocument(next);
+          tab.csvColumnWidths.splice(column, 1);
+          renderCsvGrid({row:0, column:Math.max(0, Math.min(column, next[0].length - 1))});
+        }
+      }
+    ]);
+  }
+
+  function openCsvRowMenu(event, rowIndex) {
+    event.preventDefault();
+    event.stopPropagation();
+    const tab = activeTab();
+
+    showCsvContextMenu(event.clientX, event.clientY, [
+      {
+        label:"Insert row above",
+        run:() => {
+          const next = window.RemoteHandCsv.addRow(csvRowsFor(tab), rowIndex);
+          updateCsvDocument(next);
+          renderCsvGrid({row:rowIndex, column:0});
+        }
+      },
+      {
+        label:"Insert row below",
+        run:() => {
+          const next = window.RemoteHandCsv.addRow(csvRowsFor(tab), rowIndex + 1);
+          updateCsvDocument(next);
+          renderCsvGrid({row:rowIndex + 1, column:0});
+        }
+      },
+      {
+        label:"Delete row",
+        danger:true,
+        run:() => {
+          const next = window.RemoteHandCsv.deleteRow(csvRowsFor(tab), rowIndex);
+          updateCsvDocument(next);
+          renderCsvGrid({row:Math.max(0, Math.min(rowIndex, next.length - 1)), column:0});
+        }
+      }
+    ]);
   }
 
   function renderCsvGrid(focus = null) {
     const tab = activeTab();
     if (!isCsvView(tab)) {
+      closeCsvContextMenu();
       csvTableWrap.replaceChildren();
       csvSummary.textContent = "";
       return true;
@@ -744,6 +1024,12 @@ import {languages} from "@codemirror/language-data";
     if (!Array.isArray(tab.csvColumnWidths)) tab.csvColumnWidths = [];
     while (tab.csvColumnWidths.length < width) tab.csvColumnWidths.push(180);
     tab.csvColumnWidths = tab.csvColumnWidths.slice(0, width);
+
+    const requested = focus && Number.isInteger(focus.row) && Number.isInteger(focus.column)
+      ? focus
+      : (tab.csvSelection || {row:0, column:0});
+    const selection = clampCsvSelection(rows, requested.row, requested.column);
+    tab.csvSelection = selection;
 
     const table = document.createElement("table");
     table.className = "csv-table";
@@ -771,41 +1057,15 @@ import {languages} from "@codemirror/language-data";
       const th = document.createElement("th");
       th.className = "csv-header-cell";
 
-      const inner = document.createElement("div");
-      inner.className = "csv-header-inner";
-
-      const input = document.createElement("textarea");
-      input.className = "csv-header-input";
-      input.rows = 1;
-      input.value = rows[0][column] || "";
-      input.dataset.csvRow = "0";
-      input.dataset.csvColumn = String(column);
-      input.title = "CSV column header";
-      input.addEventListener("keydown", handleCsvCellKeydown);
-      input.addEventListener("input", () => {
-        const next = window.RemoteHandCsv.setCell(csvRowsFor(), 0, column, input.value);
-        updateCsvDocument(next);
-      });
-      inner.appendChild(input);
-
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "csv-column-delete";
-      remove.textContent = "×";
-      remove.title = "Delete column " + (rows[0][column] || (column + 1));
-      remove.disabled = width <= 1;
-      remove.addEventListener("click", () => {
-        const next = window.RemoteHandCsv.deleteColumn(csvRowsFor(), column);
-        updateCsvDocument(next);
-        tab.csvColumnWidths.splice(column, 1);
-        renderCsvGrid({row:0, column:Math.max(0, Math.min(column, next[0].length - 1))});
-      });
-      inner.appendChild(remove);
+      const cell = makeCsvGridCell(0, column, rows[0][column] || "", true);
+      cell.addEventListener("contextmenu", event => openCsvColumnMenu(event, column, rows));
+      th.appendChild(cell);
 
       const handle = document.createElement("span");
       handle.className = "csv-resize-handle";
       handle.addEventListener("mousedown", event => {
         event.preventDefault();
+        event.stopPropagation();
         const startX = event.clientX;
         const startWidth = Math.max(90, Number(tab.csvColumnWidths[column]) || 180);
         const move = moveEvent => {
@@ -822,9 +1082,8 @@ import {languages} from "@codemirror/language-data";
         window.addEventListener("mousemove", move);
         window.addEventListener("mouseup", up);
       });
-      inner.appendChild(handle);
+      th.appendChild(handle);
 
-      th.appendChild(inner);
       headerRow.appendChild(th);
     }
     thead.appendChild(headerRow);
@@ -835,38 +1094,14 @@ import {languages} from "@codemirror/language-data";
       const tr = document.createElement("tr");
       const rowHead = document.createElement("th");
       rowHead.className = "csv-row-head";
-
-      const label = document.createElement("span");
-      label.textContent = String(rowIndex);
-      rowHead.appendChild(label);
-
-      const remove = document.createElement("button");
-      remove.type = "button";
-      remove.className = "csv-row-delete";
-      remove.textContent = "×";
-      remove.title = "Delete row " + rowIndex;
-      remove.addEventListener("click", () => {
-        const next = window.RemoteHandCsv.deleteRow(csvRowsFor(), rowIndex);
-        updateCsvDocument(next);
-        renderCsvGrid({row:Math.min(rowIndex, next.length - 1), column:0});
-      });
-      rowHead.appendChild(remove);
+      rowHead.textContent = String(rowIndex);
+      rowHead.title = "Right-click for row actions";
+      rowHead.addEventListener("contextmenu", event => openCsvRowMenu(event, rowIndex));
       tr.appendChild(rowHead);
 
       for (let column = 0; column < width; column++) {
         const td = document.createElement("td");
-        const input = document.createElement("textarea");
-        input.className = "csv-cell-input";
-        input.rows = 1;
-        input.value = rows[rowIndex][column] || "";
-        input.dataset.csvRow = String(rowIndex);
-        input.dataset.csvColumn = String(column);
-        input.addEventListener("keydown", handleCsvCellKeydown);
-        input.addEventListener("input", () => {
-          const next = window.RemoteHandCsv.setCell(csvRowsFor(), rowIndex, column, input.value);
-          updateCsvDocument(next);
-        });
-        td.appendChild(input);
+        td.appendChild(makeCsvGridCell(rowIndex, column, rows[rowIndex][column] || ""));
         tr.appendChild(td);
       }
       tbody.appendChild(tr);
@@ -875,9 +1110,7 @@ import {languages} from "@codemirror/language-data";
     csvTableWrap.replaceChildren(table);
     csvSummary.textContent = Math.max(0, rows.length - 1).toLocaleString() + " rows × " + width.toLocaleString() + " columns";
 
-    if (focus && Number.isInteger(focus.row) && Number.isInteger(focus.column)) {
-      focusCsvCell(focus.row, focus.column);
-    }
+    focusCsvCell(selection.row, selection.column, Boolean(requested.edit));
     return true;
   }
 
