@@ -802,7 +802,6 @@ import {languages} from "@codemirror/language-data";
       }
 
       let nextRows = window.RemoteHandCsv.setCell(csvRowsFor(tab), row, column, input.value);
-      updateCsvDocument(nextRows);
 
       if (mode === "advance") {
         const width = window.RemoteHandCsv.columnCount(nextRows);
@@ -810,10 +809,10 @@ import {languages} from "@codemirror/language-data";
 
         if (direction > 0 && flat >= nextRows.length * width) {
           nextRows = window.RemoteHandCsv.addRow(nextRows);
-          updateCsvDocument(nextRows);
           flat = (nextRows.length - 1) * width;
         }
 
+        updateCsvDocument(nextRows);
         flat = Math.max(0, Math.min(flat, nextRows.length * width - 1));
         renderCsvGrid({
           row:Math.floor(flat / width),
@@ -823,6 +822,7 @@ import {languages} from "@codemirror/language-data";
         return;
       }
 
+      updateCsvDocument(nextRows);
       renderCsvGrid({row, column});
     };
 
