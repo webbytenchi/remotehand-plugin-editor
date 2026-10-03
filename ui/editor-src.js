@@ -1,3 +1,4 @@
+import "./csv-model.js";
 import {EditorView, basicSetup} from "codemirror";
 import {EditorState, Compartment, Prec, Annotation, Transaction, StateEffect, StateField} from "@codemirror/state";
 import {keymap, Decoration} from "@codemirror/view";
