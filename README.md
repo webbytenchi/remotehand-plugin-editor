@@ -1,8 +1,8 @@
 # RemoteHand Editor
 
-RemoteHand Editor is a lightweight programmer-focused text, code, CSV, and binary editor for RemoteHand.
+RemoteHand Editor is a lightweight programmer-focused text, code, Markdown, CSV, and binary editor for RemoteHand.
 
-Version **0.5.0** adds an editable structured CSV table view while preserving the existing CodeMirror text/code editor and binary Hex Editor workflows.
+Version **0.5.1** adds a contextual Markdown preview for `.md` files while preserving normal source editing, the CSV table view, and binary Hex Editor workflows.
 
 ## Requirements
 
@@ -29,6 +29,18 @@ CodeMirror 6 now owns caret and selection behavior, line rendering and numbers, 
 - Explorer drag/drop into normal text documents to insert full native paths
 
 Named text files are **not silently autosaved to disk**. Explicit Save writes the real file.
+
+### Markdown preview
+
+Files ending in `.md` show a contextual **MD preview** checkbox.
+
+- normal Markdown source editing remains the default
+- enabling **MD preview** renders the current document without rewriting the source
+- disabling preview returns to the same Markdown source
+- preview state is persisted per tab/session
+- common Markdown presentation is supported, including headings, emphasis, lists, links, blockquotes, fenced code blocks, inline code, horizontal rules, and images
+- raw HTML is escaped rather than executed
+- unsafe link/image schemes such as `javascript:` are not emitted as active preview targets
 
 ### CSV table view
 
@@ -129,7 +141,7 @@ Run:
 The build creates:
 
     dist\remotehand-editor-windows-x86_64\
-    dist\remotehand-editor-v0.5.0-windows-x86_64.zip
+    dist\remotehand-editor-v0.5.1-windows-x86_64.zip
     dist\SHA256SUMS.txt
 
 ## Current limitations
@@ -148,7 +160,7 @@ The build creates:
 
 ## Future directions
 
-Possible later additions include go to line, configurable indentation, visible whitespace, recently closed tabs, split views, Markdown preview, JSON formatting, compare/diff, a searchable/filterable read-only Log view, richer binary editing operations, and optional language-server integration.
+Possible later additions include go to line, configurable indentation, visible whitespace, recently closed tabs, split views, JSON formatting, compare/diff, a searchable/filterable read-only Log view, richer binary editing operations, and optional language-server integration.
 
 ## License
 
