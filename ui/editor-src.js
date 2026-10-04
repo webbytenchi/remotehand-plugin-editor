@@ -1,4 +1,5 @@
 import "./csv-model.js";
+import "./markdown-model.js";
 import {EditorView, basicSetup} from "codemirror";
 import {EditorState, Compartment, Prec, Annotation, Transaction, StateEffect, StateField} from "@codemirror/state";
 import {keymap, Decoration} from "@codemirror/view";
@@ -25,6 +26,10 @@ import {languages} from "@codemirror/language-data";
   const csvViewToggle = document.getElementById("csvView");
   const csvHost = document.getElementById("csvHost");
   const csvTableWrap = document.getElementById("csvTableWrap");
+  const mdPreviewControl = document.getElementById("mdPreviewControl");
+  const mdPreviewToggle = document.getElementById("mdPreview");
+  const mdPreviewHost = document.getElementById("mdPreviewHost");
+  const mdPreviewContent = document.getElementById("mdPreviewContent");
   const wrapTextToggle = document.getElementById("wrapText");
   const lineNumbersToggle = document.getElementById("lineNumbers");
   const autocompleteControl = document.getElementById("autocompleteControl");
@@ -139,6 +144,14 @@ import {languages} from "@codemirror/language-data";
 
   function isCsvView(tab = activeTab()) {
     return Boolean(isCsvTab(tab) && tab.viewMode === "csv");
+  }
+
+  function isMarkdownTab(tab) {
+    return Boolean(tab && !tab.binary && /\.md$/i.test(String(tab.name || "")));
+  }
+
+  function isMarkdownPreview(tab = activeTab()) {
+    return Boolean(isMarkdownTab(tab) && tab.viewMode === "markdown-preview");
   }
 
   function makeId() {
@@ -615,17 +628,21 @@ import {languages} from "@codemirror/language-data";
     const binary = Boolean(tab && tab.binary);
     const csvEligible = isCsvTab(tab);
     const csvMode = isCsvView(tab);
+    const markdownEligible = isMarkdownTab(tab);
+    const markdownMode = isMarkdownPreview(tab);
     hexEditControl.hidden = !binary;
     hexEditToggle.checked = Boolean(tab && tab.hexEditable);
     csvViewControl.hidden = !csvEligible;
     csvViewToggle.checked = csvMode;
+    mdPreviewControl.hidden = !markdownEligible;
+    mdPreviewToggle.checked = markdownMode;
 
-    const hasAutocomplete = Boolean(tab && !binary && !csvMode && tab.hasAutocomplete);
+    const hasAutocomplete = Boolean(tab && !binary && !csvMode && !markdownMode && tab.hasAutocomplete);
     autocompleteControl.hidden = !hasAutocomplete;
     autocompleteToggle.checked = autocompleteEnabled;
 
-    wrapTextToggle.disabled = binary || csvMode;
-    lineNumbersToggle.disabled = csvMode;
+    wrapTextToggle.disabled = binary || csvMode || markdownMode;
+    lineNumbersToggle.disabled = csvMode || markdownMode;
     saveBtn.disabled = Boolean(binary && !tab.hexEditable);
     saveAsBtn.disabled = false;
   }
@@ -1400,6 +1417,23 @@ import {languages} from "@codemirror/language-data";
     schedulePersist();
   }
 
+  function setMarkdownPreview(enabled) {
+    const tab = activeTab();
+    if (!isMarkdownTab(tab)) return;
+    if (enabled) saveActiveEditorState();
+    tab.viewMode = enabled ? "markdown-preview" : "text";
+    render();
+    schedulePersist();
+  }
+
+  function renderMarkdownPreview(tab = activeTab()) {
+    if (!isMarkdownPreview(tab)) {
+      mdPreviewContent.replaceChildren();
+      return;
+    }
+    mdPreviewContent.innerHTML = window.RemoteHandMarkdown.render(tab.content);
+  }
+
   function updatePosition() {
     const tab = activeTab();
     if (!tab) {
@@ -1534,7 +1568,9 @@ import {languages} from "@codemirror/language-data";
         hexEditable:Boolean(tab.hexEditable),
         binarySize:Number.isFinite(Number(tab.binarySize)) ? Number(tab.binarySize) : null,
         previewTruncated:Boolean(tab.previewTruncated),
-        viewMode:isCsvTab(tab) && tab.viewMode === "csv" ? "csv" : "text",
+        viewMode:isCsvTab(tab) && tab.viewMode === "csv"
+          ? "csv"
+          : (isMarkdownTab(tab) && tab.viewMode === "markdown-preview" ? "markdown-preview" : "text"),
         csvColumnWidths:Array.isArray(tab.csvColumnWidths) ? tab.csvColumnWidths : [],
         eol:tab.eol || detectEol(tab.content),
         cursor:Number.isFinite(tab.cursor) ? tab.cursor : 0
@@ -1597,7 +1633,11 @@ import {languages} from "@codemirror/language-data";
       hexEditable:Boolean(raw.hexEditable),
       binarySize:Number.isFinite(Number(raw.binarySize)) ? Number(raw.binarySize) : null,
       previewTruncated:Boolean(raw.previewTruncated),
-      viewMode:!raw.binary && /\.csv$/i.test(String(raw.name || "")) && raw.viewMode === "csv" ? "csv" : "text",
+      viewMode:!raw.binary && /\.csv$/i.test(String(raw.name || "")) && raw.viewMode === "csv"
+        ? "csv"
+        : (!raw.binary && /\.md$/i.test(String(raw.name || "")) && raw.viewMode === "markdown-preview"
+            ? "markdown-preview"
+            : "text"),
       csvColumnWidths:Array.isArray(raw.csvColumnWidths) ? raw.csvColumnWidths.map(value => Math.max(90, Number(value) || 180)) : [],
       eol:raw.binary ? "—" : (raw.eol === "CRLF" ? "CRLF" : detectEol(String(raw.content || ""))),
       hasAutocomplete:false,
@@ -1643,10 +1683,12 @@ import {languages} from "@codemirror/language-data";
     renderTabs();
 
     const hasTab = Boolean(tab);
-    if (tab && !isCsvTab(tab)) tab.viewMode = "text";
+    if (tab && !isCsvTab(tab) && !isMarkdownTab(tab)) tab.viewMode = "text";
     const csvMode = Boolean(tab && isCsvView(tab));
-    editorHost.hidden = !hasTab || csvMode;
+    const markdownMode = Boolean(tab && isMarkdownPreview(tab));
+    editorHost.hidden = !hasTab || csvMode || markdownMode;
     csvHost.hidden = !hasTab || !csvMode;
+    mdPreviewHost.hidden = !hasTab || !markdownMode;
     empty.hidden = hasTab;
 
     if (!tab) {
@@ -1687,9 +1729,10 @@ import {languages} from "@codemirror/language-data";
       ? (tab.hexEditable
           ? "Hex editor"
           : (tab.previewTruncated ? "Binary preview (truncated)" : "Binary preview"))
-      : (csvMode ? "CSV" : languageInfo(tab.name));
+      : (csvMode ? "CSV" : (markdownMode ? "Markdown preview" : languageInfo(tab.name)));
 
     if (csvMode) renderCsvGrid();
+    if (markdownMode) renderMarkdownPreview(tab);
 
     updateContextualControls();
     updateSaveState();
@@ -1697,7 +1740,7 @@ import {languages} from "@codemirror/language-data";
     void applyLanguageForActiveTab();
 
     requestAnimationFrame(() => {
-      if (!csvMode) view.focus();
+      if (!csvMode && !markdownMode) view.focus();
     });
   }
 
@@ -2651,6 +2694,7 @@ import {languages} from "@codemirror/language-data";
     else void disableHexEditing();
   });
   csvViewToggle.addEventListener("change", () => setCsvView(csvViewToggle.checked));
+  mdPreviewToggle.addEventListener("change", () => setMarkdownPreview(mdPreviewToggle.checked));
   csvTableWrap.addEventListener("copy", event => {
     if (event.target && event.target.closest(".csv-cell-editor")) return;
     const tab = activeTab();
