@@ -4,7 +4,8 @@
   "version": "0.5.0",
   "scripts": {
     "build:ui": "esbuild ui/editor-src.js --bundle --minify --format=iife --target=chrome120 --outfile=ui/editor.js",
-    "test:csv": "node --test tests/csv-model.test.js"
+    "test:csv": "node --test tests/csv-model.test.js",
+    "test:markdown": "node --test tests/markdown-model.test.js"
   },
   "dependencies": {
     "@codemirror/autocomplete": "6.20.3",
