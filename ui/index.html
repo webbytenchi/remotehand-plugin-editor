@@ -22,6 +22,10 @@
       <input id="csvView" type="checkbox">
       <span>CSV view</span>
     </label>
+    <label id="mdPreviewControl" class="toolbar-toggle" title="Render this Markdown file as a preview" hidden>
+      <input id="mdPreview" type="checkbox">
+      <span>MD preview</span>
+    </label>
     <label class="toolbar-toggle" title="Wrap long lines to the editor width">
       <input id="wrapText" type="checkbox">
       <span>Wrap text</span>
@@ -47,6 +51,9 @@
     <div id="editorHost" class="editor-host"></div>
     <div id="csvHost" class="csv-host" hidden>
       <div id="csvTableWrap" class="csv-table-wrap"></div>
+    </div>
+    <div id="mdPreviewHost" class="md-preview-host" hidden>
+      <article id="mdPreviewContent" class="md-preview-content"></article>
     </div>
     <div id="empty" class="empty" hidden>No document is open.</div>
 
