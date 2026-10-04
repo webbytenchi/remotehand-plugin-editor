@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.5.1] - 2026-10-04
+
+### Added
+
+- Contextual **MD preview** checkbox for Markdown (`.md`) files.
+- Rendered Markdown preview for headings, emphasis, lists, links, blockquotes, fenced code blocks, inline code, horizontal rules, and images.
+- Per-tab/session persistence for Markdown preview state.
+
+### Safety
+
+- Raw HTML is escaped instead of executed inside the preview.
+- Link/image targets are restricted to safe preview schemes; unsafe targets such as `javascript:` are not emitted as active links.
+
+### Compatibility
+
+- Normal Markdown source editing remains the default.
+- Toggling preview off returns to the same underlying Markdown source without rewriting it.
+- The MD preview control is shown only for `.md` files.
+- Existing text/code, CSV, binary/Hex Editor, Find/Replace, recovery, tab, and Explorer-drop workflows remain available.
+- RemoteHand Plugin API remains **v1**.
+
+### Verification
+
+- CSV model tests: **6 passed, 0 failed**.
+- Markdown renderer tests: **3 passed, 0 failed**.
+- Rust tests: **13 passed, 0 failed**.
+- CodeMirror production UI bundle built successfully.
+- Windows plugin package built successfully.
+- Manual RemoteHand acceptance confirmed Markdown source editing, MD preview rendering, preview/source round-trip behavior, and Markdown-only contextual control visibility.
+
 ## [0.5.0] - 2026-10-03
 
 ### Added
