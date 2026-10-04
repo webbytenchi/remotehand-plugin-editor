@@ -94,3 +94,20 @@ button:disabled{opacity:.45;cursor:default}
 .csv-context-item:hover:not(:disabled){background:var(--remotehand-button-hover,#2a3542)}
 .csv-context-item.danger:not(:disabled){color:var(--remotehand-danger-text,#efaaaa)}
 .csv-context-item:disabled{opacity:.4}
+
+
+.md-preview-host{min-width:0;min-height:0;flex:1;overflow:auto;background:var(--remotehand-terminal-background,var(--remotehand-background,#11151a))}
+.md-preview-content{box-sizing:border-box;max-width:980px;margin:0 auto;padding:28px 36px 64px;color:var(--remotehand-terminal-foreground,var(--remotehand-text,#e6edf3));font-family:var(--remotehand-font-family,system-ui,-apple-system,"Segoe UI",sans-serif);font-size:15px;line-height:1.65}
+.md-preview-content>:first-child{margin-top:0}
+.md-preview-content>:last-child{margin-bottom:0}
+.md-preview-content h1,.md-preview-content h2,.md-preview-content h3,.md-preview-content h4,.md-preview-content h5,.md-preview-content h6{margin:1.45em 0 .55em;color:var(--remotehand-text,#eef3f8);line-height:1.25}
+.md-preview-content h1,.md-preview-content h2{padding-bottom:.28em;border-bottom:1px solid var(--remotehand-border,#2e3743)}
+.md-preview-content p,.md-preview-content ul,.md-preview-content ol,.md-preview-content blockquote,.md-preview-content pre{margin:.8em 0}
+.md-preview-content ul,.md-preview-content ol{padding-left:1.8em}
+.md-preview-content blockquote{padding:.1em 1em;border-left:4px solid var(--remotehand-accent-border,#5d7fa4);color:var(--remotehand-muted-text,#a7b2bf);background:color-mix(in srgb,var(--remotehand-accent-surface,#19304a) 18%,transparent)}
+.md-preview-content code{padding:.12em .34em;border:1px solid var(--remotehand-border,#2e3743);border-radius:4px;background:var(--remotehand-surface,#171d24);font-family:var(--remotehand-terminal-font-family,Consolas,"Cascadia Code","Courier New",monospace);font-size:.92em}
+.md-preview-content pre{overflow:auto;padding:14px 16px;border:1px solid var(--remotehand-border,#2e3743);border-radius:7px;background:var(--remotehand-surface,#171d24)}
+.md-preview-content pre code{padding:0;border:0;background:transparent;font-size:13px;white-space:pre}
+.md-preview-content a{color:var(--remotehand-accent-text,#7fb4e8)}
+.md-preview-content img{display:block;max-width:100%;height:auto;margin:1em 0;border-radius:6px}
+.md-preview-content hr{border:0;border-top:1px solid var(--remotehand-border,#2e3743);margin:1.5em 0}
