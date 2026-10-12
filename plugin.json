@@ -40,5 +40,17 @@
         "title": "Open Editor"
       }
     ]
-  }
+  },
+  "fileHandlers": [
+    {
+      "extensions": [
+        "txt",
+        "log",
+        "md",
+        "json",
+        "csv"
+      ],
+      "panel": "editor"
+    }
+  ]
 }
