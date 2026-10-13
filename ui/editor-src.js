@@ -2765,6 +2765,12 @@ import {languages} from "@codemirror/language-data";
   saveBtn.addEventListener("click", () => saveTab());
   saveAsBtn.addEventListener("click", () => saveAsTab());
   fileAssociationsBtn.addEventListener("click", () => { void openFileAssociations(); });
+  document.getElementById("fileAssocSelectAll").addEventListener("click", () => {
+    for (const checkbox of fileAssocCheckboxes) checkbox.checked = true;
+  });
+  document.getElementById("fileAssocDeselectAll").addEventListener("click", () => {
+    for (const checkbox of fileAssocCheckboxes) checkbox.checked = false;
+  });
   hexEditToggle.addEventListener("change", () => {
     if (hexEditToggle.checked) void enableHexEditing();
     else void disableHexEditing();
