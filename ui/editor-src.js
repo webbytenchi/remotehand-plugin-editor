@@ -20,6 +20,11 @@ import {languages} from "@codemirror/language-data";
   const empty = document.getElementById("empty");
   const saveBtn = document.getElementById("saveBtn");
   const saveAsBtn = document.getElementById("saveAsBtn");
+  const fileAssociationsBtn = document.getElementById("fileAssociationsBtn");
+  const fileAssocSettings = document.getElementById("fileAssocSettings");
+  const fileAssocCustom = document.getElementById("fileAssocCustom");
+  const fileAssocError = document.getElementById("fileAssocError");
+  const fileAssocCheckboxes = Array.from(fileAssocSettings.querySelectorAll("[data-extension]"));
   const hexEditControl = document.getElementById("hexEditControl");
   const hexEditToggle = document.getElementById("hexEdit");
   const csvViewControl = document.getElementById("csvViewControl");
@@ -2652,7 +2657,75 @@ import {languages} from "@codemirror/language-data";
     view.focus();
   }
 
+
+  const BUILTIN_FILE_EXTENSIONS = ["txt", "log", "md", "json", "csv"];
+
+  function normalizeFileExtensions(builtins, customText) {
+    const customParts = String(customText || "").split(",").map(value => value.trim()).filter(Boolean);
+    const normalizedCustom = [];
+    const invalid = [];
+    for (const original of customParts) {
+      const extension = original.replace(/^\.+/, "").toLowerCase();
+      if (!/^[a-z0-9][a-z0-9_-]{0,15}$/.test(extension)) {
+        invalid.push(original);
+        continue;
+      }
+      normalizedCustom.push(extension);
+    }
+    return {
+      extensions: Array.from(new Set([...builtins, ...normalizedCustom])),
+      invalid
+    };
+  }
+
+  async function openFileAssociations() {
+    const loadResult = await request("file_associations.get").catch(() => null);
+    const saved = loadResult && Array.isArray(loadResult.extensions)
+      ? loadResult.extensions
+      : BUILTIN_FILE_EXTENSIONS;
+    for (const checkbox of fileAssocCheckboxes) {
+      checkbox.checked = saved.includes(checkbox.dataset.extension);
+    }
+    const customSaved = saved.filter(extension => !BUILTIN_FILE_EXTENSIONS.includes(extension));
+    fileAssocCustom.value = customSaved.join(", ");
+    fileAssocError.hidden = true;
+    fileAssocError.textContent = "";
+
+    const resultPromise = choiceModal("File Associations", "Choose which file types should be associated with RemoteHand Editor.", [
+      {id:"cancel", label:"Cancel"},
+      {id:"apply", label:"Apply", primary:true}
+    ]);
+    modalMessage.hidden = false;
+    fileAssocSettings.hidden = false;
+
+    const selectedAction = await resultPromise;
+    if (selectedAction !== "apply") return;
+
+    const selectedBuiltins = fileAssocCheckboxes
+      .filter(checkbox => checkbox.checked)
+      .map(checkbox => checkbox.dataset.extension);
+    const parsed = normalizeFileExtensions(selectedBuiltins, fileAssocCustom.value);
+    if (parsed.invalid.length) {
+      await messageModal("Invalid file extensions", "Please correct these entries: " + parsed.invalid.join(", ") + ". Use letters and numbers, optionally followed by hyphens or underscores, with no wildcard or path characters.");
+      return openFileAssociations();
+    }
+    if (parsed.extensions.length > 64) {
+      await messageModal("Too many file extensions", "Please select or enter no more than 64 file extensions.");
+      return openFileAssociations();
+    }
+    try {
+      await request("file_associations.set", {extensions:parsed.extensions});
+      await messageModal("File associations updated", parsed.extensions.length
+        ? "RemoteHand is registered to open: " + parsed.extensions.map(extension => "." + extension).join(", ") + ". Windows may still require you to choose RemoteHand as the default app."
+        : "RemoteHand's file associations managed by this feature have been cleared.");
+    } catch (error) {
+      await messageModal("Could not update file associations", String(error));
+    }
+  }
+
   function closeModal(value = null) {
+    fileAssocSettings.hidden = true;
+    modalMessage.hidden = false;
     modalBackdrop.hidden = true;
     modalActions.replaceChildren();
     const resolve = modalResolve;
@@ -2662,6 +2735,8 @@ import {languages} from "@codemirror/language-data";
 
   function choiceModal(title, message, choices) {
     if (modalResolve) closeModal(null);
+    fileAssocSettings.hidden = true;
+    modalMessage.hidden = false;
     modalTitle.textContent = title;
     modalMessage.textContent = message;
     modalActions.replaceChildren();
@@ -2689,6 +2764,7 @@ import {languages} from "@codemirror/language-data";
   document.getElementById("openBtn").addEventListener("click", openFile);
   saveBtn.addEventListener("click", () => saveTab());
   saveAsBtn.addEventListener("click", () => saveAsTab());
+  fileAssociationsBtn.addEventListener("click", () => { void openFileAssociations(); });
   hexEditToggle.addEventListener("change", () => {
     if (hexEditToggle.checked) void enableHexEditing();
     else void disableHexEditing();
