@@ -404,7 +404,34 @@ fn dispatch(
             let result = host_call("storage.get", json!({ "key": SESSION_KEY }))?;
             Ok(result.get("value").cloned().unwrap_or(Value::Null))
         }
-        "session.set" => {
+        "file_associations.get" => {
+            let result = host_call("storage.get", json!({ "key": "file-associations-v1" }))?;
+            Ok(result.get("value").cloned().filter(|value| value.is_object()).unwrap_or_else(|| {
+                json!({ "extensions": ["txt", "log", "md", "json", "csv"] })
+            }))
+        }
+        "file_associations.set" => {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Params { extensions: Vec<String> }
+            let params: Params = serde_json::from_value(request.params.clone())
+                .map_err(|error| format!("invalid file association settings: {error}"))?;
+            if params.extensions.len() > 64 {
+                return Err("at most 64 file extensions may be associated".to_string());
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            for extension in &params.extensions {
+                if extension.is_empty() || extension.len() > 16 ||
+                    !extension.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_')) {
+                    return Err(format!("invalid file extension: {extension}"));
+                }
+                if !seen.insert(extension.to_ascii_lowercase()) {
+                    return Err(format!("duplicate file extension: {extension}"));
+                }
+            }
+            host_call("file_associations.set", json!({ "extensions": params.extensions }))
+        }
+    "session.set" => {
             validate_session(&request.params)?;
             host_call(
                 "storage.set",
