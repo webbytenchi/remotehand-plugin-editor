@@ -70,6 +70,23 @@ button:disabled{opacity:.45;cursor:default}
 .primary{border-color:var(--remotehand-accent-border,#5d7fa4);background:var(--remotehand-accent-surface,#19304a)}
 .danger{border-color:var(--remotehand-danger-border,#754448)}
 
+
+.icon-tool{width:30px;padding:0;font-size:17px}
+.file-assoc-settings{margin-top:14px}
+.file-assoc-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;font-weight:600}
+.file-assoc-toolbar>div{display:flex;gap:5px}
+.file-assoc-toolbar button{padding:5px 7px;font-size:12px}
+.file-assoc-options{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:15px}
+.file-assoc-options label{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--remotehand-border,#3d4a58);border-radius:7px;background:var(--remotehand-input-background,#0e141a);cursor:pointer}
+.file-assoc-options input{margin:0;accent-color:var(--remotehand-accent-border,#6f9bc8)}
+.file-assoc-options span{display:flex;flex-direction:column;gap:2px;color:var(--remotehand-muted-text,#a7b2bf);font-size:12px}
+.file-assoc-options strong{color:var(--remotehand-text,#dee5ef);font-size:13px}
+.file-assoc-custom-label{display:block;margin-bottom:6px;font-weight:600}
+.file-assoc-custom{width:100%;border:1px solid var(--remotehand-border,#3d4a58);border-radius:6px;background:var(--remotehand-input-background,#0e141a);color:var(--remotehand-text,#eef3f8);padding:8px;outline:0}
+.file-assoc-help{margin-top:7px!important;font-size:12px;line-height:1.45}
+.file-assoc-error{margin-top:8px!important;color:var(--remotehand-danger-text,#efaaaa)!important;font-size:12px}
+.modal:has(.file-assoc-settings:not([hidden])){width:min(560px,100%);max-height:calc(100vh - 40px);overflow:auto}
+
 .csv-host{min-width:0;min-height:0;flex:1;display:flex;flex-direction:column;background:var(--remotehand-terminal-background,var(--remotehand-background,#11151a))}
 .csv-table-wrap{min-height:0;flex:1;overflow:auto;padding:0 0 28px}
 .csv-table{border-collapse:separate;border-spacing:0;table-layout:fixed;min-width:100%;width:max-content}
