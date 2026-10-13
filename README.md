@@ -21,6 +21,7 @@ CodeMirror 6 now owns caret and selection behavior, line rendering and numbers, 
 - multiple untitled scratch documents
 - open UTF-8 text files regardless of filename extension
 - Save and Save As
+- configurable file associations from the gear beside Save As, including built-in and comma-separated custom extensions
 - 8 MiB per-file safety limit
 - LF/CRLF status
 - UTF-8 BOM preservation without exposing the BOM as editable text
