@@ -13,6 +13,7 @@
     <button id="openBtn" class="tool" type="button" title="Open (Ctrl+O)">Open</button>
     <button id="saveBtn" class="tool" type="button" title="Save (Ctrl+S)">Save</button>
     <button id="saveAsBtn" class="tool" type="button" title="Save As (Ctrl+Shift+S)">Save As</button>
+    <button id="fileAssociationsBtn" class="tool icon-tool" type="button" title="File associations" aria-label="File associations">⚙</button>
     <span class="spacer"></span>
     <label id="hexEditControl" class="toolbar-toggle" title="Allow controlled hexadecimal byte editing" hidden>
       <input id="hexEdit" type="checkbox">
@@ -91,6 +92,26 @@
   <div class="modal" role="dialog" aria-modal="true">
     <h2 id="modalTitle"></h2>
     <p id="modalMessage"></p>
+    <div id="fileAssocSettings" class="file-assoc-settings" hidden>
+      <div class="file-assoc-toolbar">
+        <span>File extensions</span>
+        <div>
+          <button id="fileAssocSelectAll" type="button">Select all</button>
+          <button id="fileAssocDeselectAll" type="button">Deselect all</button>
+        </div>
+      </div>
+      <div class="file-assoc-options">
+        <label><input type="checkbox" data-extension="txt"><span><strong>.txt</strong> Plain text files</span></label>
+        <label><input type="checkbox" data-extension="log"><span><strong>.log</strong> Log files</span></label>
+        <label><input type="checkbox" data-extension="md"><span><strong>.md</strong> Markdown files</span></label>
+        <label><input type="checkbox" data-extension="json"><span><strong>.json</strong> JSON files</span></label>
+        <label><input type="checkbox" data-extension="csv"><span><strong>.csv</strong> CSV files</span></label>
+      </div>
+      <label class="file-assoc-custom-label" for="fileAssocCustom">Custom extensions</label>
+      <input id="fileAssocCustom" class="file-assoc-custom" type="text" placeholder="yaml, yml, xml, ini" autocomplete="off">
+      <p id="fileAssocError" class="file-assoc-error" hidden></p>
+      <p class="file-assoc-help">Separate extensions with commas. A leading dot is optional. Windows may still ask you to choose RemoteHand as the default app.</p>
+    </div>
     <div id="modalActions" class="modal-actions"></div>
   </div>
 </div>
